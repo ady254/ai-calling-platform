@@ -6,6 +6,7 @@ from app.services.auth_service import create_user, login_user
 from app.dependencie.auth import get_current_user
 from fastapi.security import OAuth2PasswordRequestForm
 
+
 router = APIRouter()
 @router.post("/signup")
 async def signup(user: UserCreate, db: AsyncSession = Depends(get_db)):
