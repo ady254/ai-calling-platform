@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.contact_schema import ContactCreate
 from app.services.contact_service import create_contact
 from app.dependencies.database import get_db
-from app.dependencie.auth import get_current_user
+from app.dependencies.auth import get_current_user
 
 router = APIRouter()
 
