@@ -6,13 +6,27 @@ from app.api.contact_routes import router as contact_router
 from app.api.call_routes import router as call_router
 from app.api.livekit_routes import router as livekit_router
 from app.api.agent_routes import router as agent_router
-from app.api.livekit_agent_routes import router as livekit_agent_router
+
 
 from app.db.base import Base
 from app.db.session import engine
 from app.db import models
 
+from fastapi.middleware.cors import CORSMiddleware
+
+from fastapi.staticfiles import StaticFiles
+
 app = FastAPI()
+
+app.mount("/audio", StaticFiles(directory="audio"), name="audio")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(auth_router, prefix="/auth")
 app.include_router(business_router, prefix="/business")
@@ -21,7 +35,6 @@ app.include_router(contact_router, prefix="/contact")
 app.include_router(call_router, prefix="/call")
 app.include_router(livekit_router, prefix="/livekit")
 app.include_router(agent_router, prefix="/agent")
-app.include_router(livekit_agent_router, prefix="/livekit-agent")
 
 #  Create tables on startup
 @app.on_event("startup")
