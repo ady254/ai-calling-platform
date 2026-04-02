@@ -81,7 +81,7 @@ function App() {
 
       console.log("Enabling mic...");
 
-      await newRoom.localParticipant.enableCameraAndMicrophone();
+      await newRoom.localParticipant.setMicrophoneEnabled(true);
 
       console.log("FINAL: Connected successfully ✅");
 
