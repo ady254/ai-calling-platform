@@ -11,7 +11,7 @@ model = genai.GenerativeModel("gemini-2.5-flash")
 
 async def generate_ai_response(message: str):
 
-    response = model.generate_content(
+    response = await model.generate_content_async(
         f"You are a professional sales calling agent.\nUser: {message}"
     )
 
