@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Room } from "livekit-client";
 
 
@@ -8,6 +8,12 @@ function App() {
   const [password, setPassword] = useState("");
   const [room, setRoom] = useState<Room | null>(null);
   const [message, setMessage] = useState("");
+
+  // Track currently playing audio so we can stop it before playing new audio
+  const currentAudio = useRef<HTMLAudioElement | null>(null);
+
+  // Session ID: unique per login session, reset on logout or new call
+  const sessionId = useRef<string>(crypto.randomUUID());
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,7 +33,9 @@ function App() {
       const data = await res.json();
       if (data.access_token) {
         setAuthToken(data.access_token);
-        console.log("Logged in successfully");
+        // Fresh session on each login
+        sessionId.current = crypto.randomUUID();
+        console.log("Logged in successfully, session:", sessionId.current);
       } else {
         alert(data.error || "Login failed");
       }
@@ -36,6 +44,18 @@ function App() {
       alert("Failed to connect to backend");
     }
   };
+
+  const handleLogout = useCallback(() => {
+    // Stop any playing audio
+    if (currentAudio.current) {
+      currentAudio.current.pause();
+      currentAudio.current.currentTime = 0;
+      currentAudio.current = null;
+    }
+    setAuthToken(null);
+    setRoom(null);
+  }, []);
+
   const joinRoom = async () => {
     if (!authToken) {
       alert("Please login first");
@@ -62,6 +82,7 @@ function App() {
       // 🔥 ADD EVENT LISTENERS
       newRoom.on("connected", () => {
         console.log("ROOM CONNECTED 🔥");
+
       });
 
       newRoom.on("disconnected", () => {
@@ -93,18 +114,32 @@ function App() {
   };
 
   const sendToAI = async (text: string) => {
+    if (!text.trim()) return;
+
     try {
+      // 🛑 Stop previous audio before sending new request
+      if (currentAudio.current) {
+        currentAudio.current.pause();
+        currentAudio.current.currentTime = 0;
+        currentAudio.current = null;
+      }
+
       const res = await fetch("http://127.0.0.1:8000/agent/start", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({
+          message: text,
+          session_id: sessionId.current,
+        }),
       });
       const data = await res.json();
       console.log(data);
 
-      const audio = new Audio(`http://127.0.0.1:8000/${data.audio}`);
+      // Cache-bust the audio URL so browser doesn't serve stale cached audio
+      const audio = new Audio(`http://127.0.0.1:8000/${data.audio}?t=${Date.now()}`);
+      currentAudio.current = audio;
       audio.play();
     } catch (err) {
       console.error("Error", err);
@@ -113,6 +148,32 @@ function App() {
 
   const callAI = async () => {
     await sendToAI("Hello, please introduce yourself.");
+  };
+
+  const resetSession = async () => {
+    // Stop any playing audio
+    if (currentAudio.current) {
+      currentAudio.current.pause();
+      currentAudio.current.currentTime = 0;
+      currentAudio.current = null;
+    }
+
+    // Reset session on backend
+    try {
+      await fetch("http://127.0.0.1:8000/agent/reset", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ session_id: sessionId.current }),
+      });
+    } catch (err) {
+      console.error("Reset error", err);
+    }
+
+    // Create fresh session
+    sessionId.current = crypto.randomUUID();
+    console.log("Session reset, new session:", sessionId.current);
   };
 
   const startListening = () => {
@@ -143,7 +204,7 @@ function App() {
     return (
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh", background: "#f0f2f5" }}>
         <form onSubmit={handleLogin} style={{ padding: "40px", background: "white", borderRadius: "10px", boxShadow: "0 4px 6px rgba(0,0,0,0.1)", width: "100%", maxWidth: "400px" }}>
-          <h2 style={{ marginBottom: "20px", textAlign: "center", color: "#1a73e8" }}>Login to AI Platform</h2>
+          <h2 style={{ marginBottom: "20px", textAlign: "center", color: "#1a73e8" }}>Login to DODO</h2>
           <div style={{ marginBottom: "15px" }}>
             <label style={{ display: "block", marginBottom: "5px", color: "#5f6368" }}>Email</label>
             <input
@@ -178,9 +239,10 @@ function App() {
   return (
     <div style={{ padding: "40px", maxWidth: "800px", margin: "0 auto", fontFamily: "system-ui" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "30px" }}>
-        <h1 style={{ color: "#2c3e50", margin: 0 }}>AI Calling Platform</h1>
+        <h1 style={{ color: "#2c3e50", margin: 0 }}>DODO by Innvox</h1>
+        <p style={{ color: "#2c3e50", margin: 0 }}>India's first AI voice calling platform</p>
         <button
-          onClick={() => setAuthToken(null)}
+          onClick={handleLogout}
           style={{ padding: "5px 15px", background: "#e74c3c", color: "white", border: "none", borderRadius: "5px", cursor: "pointer" }}
         >
           Logout
@@ -205,6 +267,12 @@ function App() {
           style={{ padding: "10px 20px", background: "#e67e22", color: "white", border: "none", borderRadius: "5px", cursor: "pointer" }}
         >
           🎤 Speak
+        </button>
+        <button
+          onClick={resetSession}
+          style={{ padding: "10px 20px", background: "#95a5a6", color: "white", border: "none", borderRadius: "5px", cursor: "pointer" }}
+        >
+          🔄 New Session
         </button>
       </div>
 

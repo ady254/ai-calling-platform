@@ -7,28 +7,21 @@ from dotenv import load_dotenv
 load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel(
+    "gemini-1.5-flash",
+    system_instruction=(
+        "You are a friendly AI voice assistant. Speak naturally like a human in a phone call. "
+        "Reply in Hinglish (Hindi + English mix). Keep responses short and natural. "
+        "When the user greets you or says hello, your exact first response should be: "
+        "'Hey, I'm from DODO by Innvox, India's first AI voice calling platform. How can I help you today?' "
+        "After that, understand the user's requirements and respond accordingly."
+    )
+)
 
 async def get_response(text, history):
-
-    if len(history) == 0:
-        history.append({
-            "role": "user",
-            "parts": [
-                "You are a friendly AI voice assistant. Speak naturally like a human in a phone call."
-            ]
-        })
-
-    prompt = f"""
-Reply in Hinglish (Hindi + English mix).
-Keep responses short and natural.
-
-User: {text}
-"""
-
     history.append({
         "role": "user",
-        "parts": [prompt]
+        "parts": [text]
     })
 
     response = await model.generate_content_async(history)
