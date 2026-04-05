@@ -18,7 +18,12 @@ class SessionInput(BaseModel):
 
 @router.post("/start")
 async def start_agent(data: MessageInput):
-    return await run_ai_agent(data.message, session_id=data.session_id)
+    try:
+        return await run_ai_agent(data.message, session_id=data.session_id)
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        return {"error": str(e), "traceback": tb}
 
 
 @router.post("/reset")

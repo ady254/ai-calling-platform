@@ -8,7 +8,7 @@ load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 model = genai.GenerativeModel(
-    "gemini-1.5-flash",
+    "gemini-2.5-flash",
     system_instruction=(
         "You are a friendly AI voice assistant. Speak naturally like a human in a phone call. "
         "Reply in Hinglish (Hindi + English mix). Keep responses short and natural. "
