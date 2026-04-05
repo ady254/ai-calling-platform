@@ -1,0 +1,1 @@
+export const CallTable = () => <table>Call Table</table>;
