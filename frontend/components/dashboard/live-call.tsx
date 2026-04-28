@@ -100,7 +100,7 @@ export default function LiveCall() {
             </div>
 
             <div className="text-center mb-10">
-                <h2 className="text-2xl font-bold text-slate-800 tracking-tight">AI Sales Agent</h2>
+                <h2 className="text-2xl font-bold text-slate-800 tracking-tight">AI Receptionist</h2>
                 <div className="flex items-center justify-center gap-2 mt-2">
                     <span className="relative flex h-2.5 w-2.5">
                         {connected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}

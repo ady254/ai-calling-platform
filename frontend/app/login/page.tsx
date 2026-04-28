@@ -49,16 +49,16 @@ export default function LoginPage() {
                 <div className="absolute top-0 right-1/4 w-[500px] h-[500px] bg-[#9b87f5] rounded-full filter blur-[120px] animate-pulse-slow"></div>
                 <div className="absolute bottom-1/4 left-1/4 w-[600px] h-[600px] bg-[#33C3F0] rounded-full filter blur-[140px] animate-float"></div>
             </div>
-            
+
             <main className="w-full max-w-[900px] bg-white rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.06)] border border-slate-100 flex flex-col md:flex-row overflow-hidden min-h-[600px]">
                 {/* Left panel - Branding & Info */}
                 <section className="w-full md:w-[45%] bg-[#f8fafc] p-12 flex flex-col justify-between border-b md:border-b-0 md:border-r border-slate-100">
                     <div>
                         <div className="flex items-center gap-2 mb-12">
                             <div className="w-10 h-10 rounded-xl bg-black flex items-center justify-center text-white font-bold text-2xl leading-none">
-                                D
+                                V3
                             </div>
-                            <span className="font-bold text-2xl tracking-tighter">Dodo.</span>
+                            <span className="font-bold text-2xl tracking-tighter">V3</span>
                         </div>
 
                         <div className="space-y-6">
@@ -81,7 +81,7 @@ export default function LoginPage() {
                         <div className="w-10 h-10 rounded-full border border-slate-200 flex items-center justify-center">
                             <ShieldCheck className="w-5 h-5" />
                         </div>
-                        <span className="text-[10px] font-bold uppercase tracking-[0.2em]">Dodo.ai Protected</span>
+                        <span className="text-[10px] font-bold uppercase tracking-[0.2em]">V3 Protected</span>
                     </div>
                 </section>
 
@@ -103,9 +103,9 @@ export default function LoginPage() {
                             <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Email Address</label>
                             <div className="flex items-center gap-4 px-5 py-4 bg-slate-50 rounded-2xl border border-slate-100 focus-within:border-indigo-500 focus-within:ring-4 focus-within:ring-indigo-500/5 transition-all group">
                                 <Mail className="w-[18px] h-[18px] text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
-                                <input 
-                                    type="email" 
-                                    placeholder="your@email.com" 
+                                <input
+                                    type="email"
+                                    placeholder="your@email.com"
                                     className="bg-transparent border-none outline-none flex-1 text-[15px] placeholder:text-slate-300 w-full"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
@@ -121,9 +121,9 @@ export default function LoginPage() {
                             </div>
                             <div className="flex items-center gap-4 px-5 py-4 bg-slate-50 rounded-2xl border border-slate-100 focus-within:border-indigo-500 focus-within:ring-4 focus-within:ring-indigo-500/5 transition-all group">
                                 <Lock className="w-[18px] h-[18px] text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
-                                <input 
-                                    type="password" 
-                                    placeholder="••••••••" 
+                                <input
+                                    type="password"
+                                    placeholder="••••••••"
                                     className="bg-transparent border-none outline-none flex-1 text-[15px] placeholder:text-slate-300 w-full"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
@@ -133,8 +133,8 @@ export default function LoginPage() {
                         </div>
 
                         <div className="pt-4 h-24">
-                            <button 
-                                type="submit" 
+                            <button
+                                type="submit"
                                 disabled={loading}
                                 className={`w-full flex items-center justify-between px-8 py-4 bg-[#111] text-white rounded-full font-bold shadow-xl shadow-black/10 hover:bg-slate-800 hover:-translate-y-0.5 active:translate-y-0 transition-all ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
                             >

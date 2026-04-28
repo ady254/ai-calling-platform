@@ -33,11 +33,11 @@ export default function Sidebar() {
     <div className="w-64 h-screen bg-white/80 backdrop-blur-xl border-r border-[#6366f1]/10 flex flex-col pt-6 font-sans">
       {/* Logo Section */}
       <div className="flex items-center gap-3 px-6 pb-8">
-        <div className="bg-[#6366f1] text-white w-10 h-10 rounded-xl flex items-center justify-center font-bold text-2xl shadow-md border border-[#4f46e5]/20">
-          D
+        <div className="bg-black text-white w-10 h-10 rounded-xl flex items-center justify-center font-bold text-2xl shadow-md border border-[#4f46e5]/20">
+          V3
         </div>
         <div className="flex flex-col">
-          <span className="font-semibold text-[#0f172a] text-lg leading-tight">Dodo Calling</span>
+          <span className="font-semibold text-[#0f172a] text-lg leading-tight">V3.</span>
           <span className="text-xs text-[#6366f1]/60 font-medium tracking-wide">Customer Experience</span>
         </div>
       </div>
@@ -53,8 +53,8 @@ export default function Sidebar() {
               key={item.name}
               href={item.href}
               className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 ease-in-out group relative overflow-hidden ${isActive
-                  ? "bg-[#6366f1]/10 text-[#6366f1] font-medium shadow-sm border border-[#6366f1]/10"
-                  : "text-[#334155] hover:bg-[#6366f1]/5 hover:text-[#6366f1]"
+                ? "bg-[#6366f1]/10 text-[#6366f1] font-medium shadow-sm border border-[#6366f1]/10"
+                : "text-[#334155] hover:bg-[#6366f1]/5 hover:text-[#6366f1]"
                 }`}
             >
               {/* Active Indicator Line (Optional, adds a nice touch) */}
@@ -82,7 +82,7 @@ export default function Sidebar() {
           </div>
           <div className="flex flex-col flex-1 truncate">
             <span className="text-sm font-semibold text-slate-700">Admin User</span>
-            <span className="text-[10px] text-slate-400">admin@dodo.ai</span>
+            <span className="text-[10px] text-slate-400">admin@adnanahmad.ai</span>
           </div>
         </div>
       </div>
