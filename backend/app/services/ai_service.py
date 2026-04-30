@@ -1,10 +1,10 @@
-import os
+import logging
 import google.generativeai as genai
-from dotenv import load_dotenv
+from app.core.config import settings
 
-load_dotenv()
+logger = logging.getLogger(__name__)
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+genai.configure(api_key=settings.GEMINI_API_KEY)
 
 model = genai.GenerativeModel(
     "gemini-2.5-flash",
@@ -57,6 +57,8 @@ async def generate_ai_response(message: str, session_id: str = "default") -> str
         "parts": [reply]
     })
 
+    logger.info(f"AI response for session {session_id}: {reply[:100]}...")
+
     return reply
 
 
@@ -64,3 +66,4 @@ def clear_session(session_id: str) -> None:
     """Clear conversation history for a session."""
     if session_id in _session_histories:
         del _session_histories[session_id]
+        logger.info(f"Cleared session: {session_id}")

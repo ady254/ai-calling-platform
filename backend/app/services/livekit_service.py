@@ -1,15 +1,13 @@
 from livekit.api import AccessToken, VideoGrants
-from dotenv import load_dotenv
-import os
-
-load_dotenv()
+from app.core.config import settings
 
 
 def create_room_token(identity: str, room_name: str):
+    """Create a LiveKit room access token for a participant."""
 
     token = AccessToken(
-        os.getenv("LIVEKIT_API_KEY"),
-        os.getenv("LIVEKIT_API_SECRET")
+        settings.LIVEKIT_API_KEY,
+        settings.LIVEKIT_API_SECRET
     )
 
     token.with_identity(identity)

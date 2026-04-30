@@ -1,6 +1,8 @@
 import { useState, useRef, useCallback } from "react";
 import { Room } from "livekit-client";
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 export const useCalling = (authToken: string | null) => {
   const [room, setRoom] = useState<Room | null>(null);
   const currentAudio = useRef<HTMLAudioElement | null>(null);
@@ -15,7 +17,7 @@ export const useCalling = (authToken: string | null) => {
     try {
       console.log("Fetching token...");
       const res = await fetch(
-        "http://127.0.0.1:8000/livekit/token?room_name=test-room",
+        `${API_URL}/livekit/token?room_name=test-room`,
         {
           headers: {
             Authorization: `Bearer ${authToken}`,
@@ -24,15 +26,17 @@ export const useCalling = (authToken: string | null) => {
       );
 
       const data = await res.json();
-      const newRoom = new Room();
+      const newRoom = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+      });
       
       newRoom.on("connected", () => console.log("CONNECTED 🔥"));
       newRoom.on("disconnected", () => console.log("DISCONNECTED ❌"));
 
-      await newRoom.connect(
-        "wss://innvox-um8kvrmw.livekit.cloud",
-        data.token
-      );
+      // Use LiveKit URL from backend response
+      const livekitUrl = data.livekit_url || process.env.NEXT_PUBLIC_LIVEKIT_URL || "wss://innvox-um8kvrmw.livekit.cloud";
+      await newRoom.connect(livekitUrl, data.token);
 
       await newRoom.localParticipant.setMicrophoneEnabled(true);
       setRoom(newRoom);
@@ -50,10 +54,11 @@ export const useCalling = (authToken: string | null) => {
         currentAudio.current.currentTime = 0;
       }
 
-      const res = await fetch("http://127.0.0.1:8000/agent/start", {
+      const res = await fetch(`${API_URL}/agent/start`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("token") || ""}`,
         },
         body: JSON.stringify({
           message: text,
@@ -61,7 +66,7 @@ export const useCalling = (authToken: string | null) => {
         }),
       });
       const data = await res.json();
-      const audio = new Audio(`http://127.0.0.1:8000/${data.audio}?t=${Date.now()}`);
+      const audio = new Audio(`${API_URL}/${data.audio}?t=${Date.now()}`);
       currentAudio.current = audio;
       audio.play();
     } catch (err) {
@@ -76,9 +81,12 @@ export const useCalling = (authToken: string | null) => {
     }
 
     try {
-      await fetch("http://127.0.0.1:8000/agent/reset", {
+      await fetch(`${API_URL}/agent/reset`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("token") || ""}`,
+        },
         body: JSON.stringify({ session_id: sessionId.current }),
       });
     } catch (err) {

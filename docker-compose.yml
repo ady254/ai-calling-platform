@@ -1,0 +1,123 @@
+version: "3.9"
+
+services:
+  # =============================================
+  # PostgreSQL Database
+  # =============================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: aicalling-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-Ady4026}
+      POSTGRES_DB: aicalling
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aicalling-net
+
+  # =============================================
+  # Redis (Job queue & caching)
+  # =============================================
+  redis:
+    image: redis:7-alpine
+    container_name: aicalling-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aicalling-net
+
+  # =============================================
+  # FastAPI Backend
+  # =============================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aicalling-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-Ady4026}@postgres:5432/aicalling
+      - ALLOWED_ORIGINS=http://localhost:3000,http://frontend:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - backend-audio:/app/audio
+    networks:
+      - aicalling-net
+
+  # =============================================
+  # LiveKit AI Agent Worker
+  # =============================================
+  ai-agent:
+    build:
+      context: ./ai-agent
+      dockerfile: Dockerfile
+    container_name: aicalling-agent
+    env_file:
+      - ./ai-agent/.env
+    depends_on:
+      - redis
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    restart: unless-stopped
+    networks:
+      - aicalling-net
+
+  # =============================================
+  # Next.js Frontend
+  # =============================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://localhost:8000
+        - NEXT_PUBLIC_LIVEKIT_URL=${LIVEKIT_URL:-wss://innvox-um8kvrmw.livekit.cloud}
+    container_name: aicalling-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_LIVEKIT_URL=${LIVEKIT_URL:-wss://innvox-um8kvrmw.livekit.cloud}
+    depends_on:
+      - backend
+    networks:
+      - aicalling-net
+
+volumes:
+  pgdata:
+    driver: local
+  redisdata:
+    driver: local
+  backend-audio:
+    driver: local
+
+networks:
+  aicalling-net:
+    driver: bridge

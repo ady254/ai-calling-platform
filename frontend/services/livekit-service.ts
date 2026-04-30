@@ -1,10 +1,14 @@
-
 import { Room } from "livekit-client";
 
-export const connectToRoom = async (token: string) => {
-    const room = new Room();
+const DEFAULT_LIVEKIT_URL = process.env.NEXT_PUBLIC_LIVEKIT_URL || "wss://innvox-um8kvrmw.livekit.cloud";
 
-    await room.connect("wss://innvox-um8kvrmw.livekit.cloud", token);
+export const connectToRoom = async (token: string, url?: string) => {
+    const room = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+    });
+
+    await room.connect(url || DEFAULT_LIVEKIT_URL, token);
 
     return room;
-};
+};

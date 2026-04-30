@@ -1,0 +1,19 @@
+# AI Agent Docker ignore
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+.env
+.env.local
+.git
+.gitignore
+*.log
+*.mp3
+test*.py
+test_out.txt
+tts_source.txt
+pip_list.txt
+agent_output.log
+check_init.py
+list_models.py

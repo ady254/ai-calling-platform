@@ -1,27 +1,45 @@
 "use client";
 
-import { useState } from "react";
-import { connectToRoom } from "@/services/livekit-service";
-import { Mic, MicOff, Phone, PhoneOff, Activity } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Room, RoomEvent, Track, RemoteTrackPublication, RemoteParticipant } from "livekit-client";
+import { Mic, MicOff, Phone, PhoneOff, Activity, Volume2 } from "lucide-react";
 
 export default function LiveCall() {
-    const [room, setRoom] = useState<any>(null);
+    const [room, setRoom] = useState<Room | null>(null);
     const [connected, setConnected] = useState(false);
     const [isConnecting, setIsConnecting] = useState(false);
+    const [isMuted, setIsMuted] = useState(false);
+    const [agentSpeaking, setAgentSpeaking] = useState(false);
+    const [statusText, setStatusText] = useState("Ready to connect");
+    const audioElementsRef = useRef<HTMLAudioElement[]>([]);
+
+    // Cleanup audio elements on unmount
+    useEffect(() => {
+        return () => {
+            audioElementsRef.current.forEach((el) => {
+                el.pause();
+                el.remove();
+            });
+        };
+    }, []);
 
     const startCall = async () => {
         setIsConnecting(true);
+        setStatusText("Connecting...");
+
         try {
             const token = localStorage.getItem("token");
 
             if (!token) {
-                alert("Please login first ❌");
+                alert("Please login first");
                 setIsConnecting(false);
+                setStatusText("Ready to connect");
                 return;
             }
 
+            // Fetch LiveKit token and URL from backend
             const res = await fetch(
-                "http://localhost:8000/livekit/token?room_name=test-room&user_id=dev-user",
+                "http://localhost:8000/livekit/token?room_name=test-room",
                 {
                     headers: {
                         Authorization: `Bearer ${token}`,
@@ -35,42 +53,135 @@ export default function LiveCall() {
 
             const data = await res.json();
 
-            console.log("LiveKit token:", data);
-
             if (!data.token) {
-                alert("Token not received ❌");
+                alert("Token not received");
                 setIsConnecting(false);
+                setStatusText("Ready to connect");
                 return;
             }
 
-            const newRoom = await connectToRoom(data.token);
-
-            // 👂 Listen for incoming AI audio tracks and play them!
-            newRoom.on("trackSubscribed", (track) => {
-                if (track.kind === "audio") {
-                    const audioElement = track.attach();
-                    document.body.appendChild(audioElement);
-                }
+            const newRoom = new Room({
+                adaptiveStream: true,
+                dynacast: true,
             });
+
+            // Listen for AI agent audio tracks and play them
+            newRoom.on(
+                RoomEvent.TrackSubscribed,
+                (track, publication, participant) => {
+                    console.log(`Track subscribed: ${track.kind} from ${participant.identity}`);
+
+                    if (track.kind === Track.Kind.Audio) {
+                        const audioElement = track.attach();
+                        audioElement.autoplay = true;
+                        audioElement.volume = 1.0;
+                        document.body.appendChild(audioElement);
+                        audioElementsRef.current.push(audioElement);
+                        setAgentSpeaking(true);
+
+                        console.log("AI audio track attached and playing");
+                    }
+                }
+            );
+
+            // Track when audio stops
+            newRoom.on(
+                RoomEvent.TrackUnsubscribed,
+                (track, publication, participant) => {
+                    if (track.kind === Track.Kind.Audio) {
+                        const detachedElements = track.detach();
+                        detachedElements.forEach((el) => {
+                            el.remove();
+                            audioElementsRef.current = audioElementsRef.current.filter(
+                                (a) => a !== el
+                            );
+                        });
+                        setAgentSpeaking(false);
+                    }
+                }
+            );
+
+            // Listen for participant connection (AI agent joining)
+            newRoom.on(RoomEvent.ParticipantConnected, (participant) => {
+                console.log(`Participant joined: ${participant.identity}`);
+                setStatusText("AI Agent connected - Speak now");
+            });
+
+            newRoom.on(RoomEvent.ParticipantDisconnected, (participant) => {
+                console.log(`Participant left: ${participant.identity}`);
+                setAgentSpeaking(false);
+            });
+
+            newRoom.on(RoomEvent.Disconnected, () => {
+                console.log("Disconnected from room");
+                setConnected(false);
+                setStatusText("Disconnected");
+            });
+
+            // Connect to LiveKit room using URL from backend response
+            const livekitUrl = data.livekit_url || "wss://innvox-um8kvrmw.livekit.cloud";
+            await newRoom.connect(livekitUrl, data.token);
+
+            console.log("Connected to LiveKit room:", data.room);
+
+            // Enable microphone
+            await newRoom.localParticipant.setMicrophoneEnabled(true);
 
             setRoom(newRoom);
             setConnected(true);
+            setStatusText("Connected - Waiting for AI Agent...");
 
-            // 🎤 Enable mic
-            await newRoom.localParticipant.setMicrophoneEnabled(true);
+            // Check if agent is already in the room
+            const remoteParticipants = Array.from(newRoom.remoteParticipants.values());
+            if (remoteParticipants.length > 0) {
+                setStatusText("AI Agent connected - Speak now");
+                // Subscribe to existing tracks
+                remoteParticipants.forEach((participant: RemoteParticipant) => {
+                    participant.trackPublications.forEach((pub: RemoteTrackPublication) => {
+                        if (pub.track && pub.track.kind === Track.Kind.Audio) {
+                            const audioElement = pub.track.attach();
+                            audioElement.autoplay = true;
+                            audioElement.volume = 1.0;
+                            document.body.appendChild(audioElement);
+                            audioElementsRef.current.push(audioElement);
+                            setAgentSpeaking(true);
+                        }
+                    });
+                });
+            }
 
         } catch (err) {
             console.error("Call error:", err);
-            alert("Error starting call");
+            alert("Error starting call. Please check if the AI Agent is running.");
+            setStatusText("Connection failed");
         } finally {
             setIsConnecting(false);
         }
     };
 
+    const toggleMute = async () => {
+        if (room) {
+            const newMuted = !isMuted;
+            await room.localParticipant.setMicrophoneEnabled(!newMuted);
+            setIsMuted(newMuted);
+        }
+    };
+
     const endCall = () => {
-        room?.disconnect();
+        if (room) {
+            room.disconnect();
+        }
+        // Cleanup audio elements
+        audioElementsRef.current.forEach((el) => {
+            el.pause();
+            el.remove();
+        });
+        audioElementsRef.current = [];
         setConnected(false);
         setRoom(null);
+        setAgentSpeaking(false);
+        setIsMuted(false);
+        setStatusText("Ready to connect");
     };
 
     return (
@@ -78,14 +189,24 @@ export default function LiveCall() {
 
             <div className="relative mb-12 mt-8">
                 {/* Status Ring */}
-                <div className={`absolute -inset-8 rounded-full opacity-20 blur-xl transition-all duration-1000 ${connected ? "bg-emerald-500 animate-pulse-slow" : isConnecting ? "bg-amber-500 animate-pulse" : "bg-indigo-500"
+                <div className={`absolute -inset-8 rounded-full opacity-20 blur-xl transition-all duration-1000 ${connected
+                    ? agentSpeaking
+                        ? "bg-violet-500 animate-pulse"
+                        : "bg-emerald-500 animate-pulse-slow"
+                    : isConnecting
+                        ? "bg-amber-500 animate-pulse"
+                        : "bg-indigo-500"
                     }`}></div>
 
                 {/* Main Avatar / Icon */}
                 <div className="relative w-32 h-32 rounded-full bg-white shadow-xl shadow-slate-200/50 border-4 border-white flex items-center justify-center overflow-hidden z-10">
                     {connected ? (
-                        <div className="flex items-center justify-center w-full h-full bg-emerald-50 text-emerald-500">
-                            <Activity className="w-12 h-12 animate-pulse" strokeWidth={1.5} />
+                        <div className={`flex items-center justify-center w-full h-full ${agentSpeaking ? "bg-violet-50 text-violet-500" : "bg-emerald-50 text-emerald-500"}`}>
+                            {agentSpeaking ? (
+                                <Volume2 className="w-12 h-12 animate-pulse" strokeWidth={1.5} />
+                            ) : (
+                                <Activity className="w-12 h-12 animate-pulse" strokeWidth={1.5} />
+                            )}
                         </div>
                     ) : (
                         <div className="flex text-4xl font-light text-slate-300">
@@ -100,14 +221,14 @@ export default function LiveCall() {
             </div>
 
             <div className="text-center mb-10">
-                <h2 className="text-2xl font-bold text-slate-800 tracking-tight">AI Receptionist</h2>
+                <h2 className="text-2xl font-bold text-slate-800 tracking-tight">AI Voice Agent</h2>
                 <div className="flex items-center justify-center gap-2 mt-2">
                     <span className="relative flex h-2.5 w-2.5">
                         {connected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
                         <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${connected ? 'bg-emerald-500' : 'bg-slate-300'}`}></span>
                     </span>
                     <p className="text-slate-500 font-medium text-sm">
-                        {connected ? "Session Active - Speak Now" : isConnecting ? "Connecting..." : "Ready to connect"}
+                        {statusText}
                     </p>
                 </div>
             </div>
@@ -117,6 +238,7 @@ export default function LiveCall() {
                     <button
                         onClick={startCall}
                         disabled={isConnecting}
+                        id="start-call-btn"
                         className={`flex items-center gap-3 bg-indigo-600 text-white px-8 py-4 rounded-full font-semibold shadow-lg shadow-indigo-600/30 hover:bg-indigo-700 hover:shadow-indigo-600/40 transition-all ${isConnecting ? "opacity-70 cursor-not-allowed scale-95" : "hover:scale-105 active:scale-95"
                             }`}
                     >
@@ -126,13 +248,19 @@ export default function LiveCall() {
                 ) : (
                     <>
                         <button
-                            className="flex items-center justify-center w-14 h-14 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200 transition-colors"
-                            title="Mute Microphone"
+                            onClick={toggleMute}
+                            id="mute-btn"
+                            className={`flex items-center justify-center w-14 h-14 rounded-full transition-colors ${isMuted
+                                ? "bg-rose-100 text-rose-600 hover:bg-rose-200"
+                                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                }`}
+                            title={isMuted ? "Unmute Microphone" : "Mute Microphone"}
                         >
-                            <Mic className="w-6 h-6" />
+                            {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
                         </button>
                         <button
                             onClick={endCall}
+                            id="end-call-btn"
                             className="flex items-center gap-3 bg-rose-500 text-white px-8 py-4 rounded-full font-semibold shadow-lg shadow-rose-500/30 hover:bg-rose-600 hover:shadow-rose-500/40 transition-all hover:scale-105 active:scale-95"
                         >
                             <PhoneOff className="w-5 h-5" fill="currentColor" stroke="none" />

@@ -2,12 +2,15 @@ import os
 import uuid
 import time
 import glob
+import logging
 from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
+from app.core.config import settings
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
-client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
+client = ElevenLabs(api_key=settings.ELEVEN_API_KEY)
 
 # Use a real ElevenLabs voice ID — "Bella" voice
 VOICE_ID = "ibbx9zDYGvLgtYzRbqqG"
@@ -39,9 +42,11 @@ def text_to_speech(text: str) -> str:
             for chunk in audio_generator:
                 if chunk:
                     f.write(chunk)
+
+        logger.info(f"Generated audio: {file_path}")
     except Exception as e:
-        print(f"ElevenLabs error: {e}")
-        print("Falling back to gTTS...")
+        logger.error(f"ElevenLabs error: {e}")
+        logger.info("Falling back to gTTS...")
         from gtts import gTTS
         tts = gTTS(text=text, lang="en")
         tts.save(file_path)
