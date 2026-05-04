@@ -16,9 +16,9 @@ import {
 
 const navItems = [
   { name: "Home", href: "/dashboard", icon: Home },
+  { name: "Campaigns", href: "/dashboard/campaigns", icon: MessageSquare },
+  { name: "Contacts", href: "/dashboard/contacts", icon: Book },
   { name: "Call logs", href: "/dashboard/calls", icon: PhoneCall },
-  { name: "Messages", href: "/dashboard/messages", icon: MessageSquare },
-  { name: "Knowledge Base", href: "/dashboard/knowledge-base", icon: Book },
   { name: "Integrations", href: "/dashboard/integrations", icon: Cpu },
   { name: "Reports", href: "/dashboard/reports", icon: FileText },
   { name: "Workflow Management", href: "/dashboard/workflows", icon: GitMerge },
