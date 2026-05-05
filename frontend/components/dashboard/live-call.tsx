@@ -12,6 +12,10 @@ export default function LiveCall() {
     const [agentSpeaking, setAgentSpeaking] = useState(false);
     const [statusText, setStatusText] = useState("Ready to connect");
     const audioElementsRef = useRef<HTMLAudioElement[]>([]);
+    const startTimeRef = useRef<Date | null>(null);
+
+    // Placeholder contact ID for logging (in reality, this would be passed in)
+    const testContactId = "71da3877-026b-49a2-9304-05dad8847a53"; // Example UUID
 
     // Cleanup audio elements on unmount
     useEffect(() => {
@@ -26,6 +30,7 @@ export default function LiveCall() {
     const startCall = async () => {
         setIsConnecting(true);
         setStatusText("Connecting...");
+        startTimeRef.current = new Date();
 
         try {
             const token = localStorage.getItem("token");
@@ -116,6 +121,7 @@ export default function LiveCall() {
                 console.log("Disconnected from room");
                 setConnected(false);
                 setStatusText("Disconnected");
+                saveCallLog();
             });
 
             // Connect to LiveKit room using URL from backend response
@@ -159,6 +165,32 @@ export default function LiveCall() {
         }
     };
 
+    const saveCallLog = async () => {
+        if (!startTimeRef.current) return;
+        const endTime = new Date();
+        const durationSeconds = Math.round((endTime.getTime() - startTimeRef.current.getTime()) / 1000);
+        
+        try {
+            const token = localStorage.getItem("token");
+            await fetch("http://localhost:8000/call/log", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    contact_id: testContactId,
+                    status: "completed",
+                    transcript: "AI: Hello, how can I help you today?\nUser: ...", // Placeholder for actual transcript
+                    duration: durationSeconds
+                })
+            });
+            console.log("Call logged successfully.");
+        } catch (error) {
+            console.error("Failed to log call:", error);
+        }
+    };
+
     const toggleMute = async () => {
         if (room) {
             const newMuted = !isMuted;
@@ -170,6 +202,9 @@ export default function LiveCall() {
     const endCall = () => {
         if (room) {
             room.disconnect();
+        } else {
+            // If ended before connecting fully or just resetting
+            saveCallLog();
         }
         // Cleanup audio elements
         audioElementsRef.current.forEach((el) => {

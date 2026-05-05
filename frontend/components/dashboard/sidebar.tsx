@@ -16,11 +16,12 @@ import {
 
 const navItems = [
   { name: "Home", href: "/dashboard", icon: Home },
+  { name: "Analytics", href: "/dashboard/analytics", icon: FileText },
+  { name: "Live Call", href: "/dashboard/calls", icon: PhoneCall },
+  { name: "Call logs", href: "/dashboard/call-logs", icon: Book },
   { name: "Campaigns", href: "/dashboard/campaigns", icon: MessageSquare },
   { name: "Contacts", href: "/dashboard/contacts", icon: Book },
-  { name: "Call logs", href: "/dashboard/calls", icon: PhoneCall },
   { name: "Integrations", href: "/dashboard/integrations", icon: Cpu },
-  { name: "Reports", href: "/dashboard/reports", icon: FileText },
   { name: "Workflow Management", href: "/dashboard/workflows", icon: GitMerge },
   { name: "Agent Configuration", href: "/dashboard/agents", icon: Puzzle },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
