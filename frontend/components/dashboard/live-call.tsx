@@ -128,8 +128,8 @@ export default function LiveCall({ campaignId, contactId }: LiveCallProps) {
                 console.log("Disconnected from room");
                 setConnected(false);
                 setStatusText("Disconnected");
-                saveCallLog();
             });
+
 
             // Connect to LiveKit room using URL from backend response
             const livekitUrl = data.livekit_url || "wss://innvox-um8kvrmw.livekit.cloud";
@@ -169,32 +169,6 @@ export default function LiveCall({ campaignId, contactId }: LiveCallProps) {
             setStatusText("Connection failed");
         } finally {
             setIsConnecting(false);
-        }
-    };
-
-    const saveCallLog = async () => {
-        if (!startTimeRef.current) return;
-        const endTime = new Date();
-        const durationSeconds = Math.round((endTime.getTime() - startTimeRef.current.getTime()) / 1000);
-        
-        try {
-            const token = localStorage.getItem("token");
-            await fetch("http://localhost:8000/call/log", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    contact_id: activeContactId,
-                    status: "completed",
-                    transcript: "AI: Hello, how can I help you today?\nUser: ...", // Placeholder for actual transcript
-                    duration: durationSeconds
-                })
-            });
-            console.log("Call logged successfully.");
-        } catch (error) {
-            console.error("Failed to log call:", error);
         }
     };
 

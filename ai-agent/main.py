@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 from livekit.agents import AgentSession, Agent, JobContext, WorkerOptions, cli, RoomInputOptions
 from livekit.plugins import google, deepgram, silero, elevenlabs
 import os
-from livekit.rtc import RoomEvent
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -18,11 +17,6 @@ class MyAgent(Agent):
     def __init__(self, instructions: str):
         super().__init__(instructions=instructions)
         self.transcript = []
-
-    async def on_response(self, response):
-        print("AI Response:", response)
-        self.transcript.append(f"AI: {response}")
-        return response
 
 async def fetch_campaign(campaign_id: str):
     try:
@@ -86,7 +80,7 @@ async def entrypoint(ctx: JobContext):
     session = AgentSession(
         vad=silero.VAD.load(),
         stt=deepgram.STT(),
-        llm=google.LLM(model="gemini-2.5-flash"),
+        llm=google.LLM(model="gemini-1.5-flash"),
         tts=elevenlabs.TTS(
             model="eleven_multilingual_v2",
             voice_id=voice_id,
