@@ -20,8 +20,11 @@ class CallLogOut(BaseModel):
     class Config:
         from_attributes = True
 
+from typing import List, Dict, Any
+
 class AnalyticsOut(BaseModel):
     total_calls: int
     completed_calls: int
     failed_calls: int
     average_duration_seconds: float
+    call_trends: List[Dict[str, Any]] = []

@@ -2,7 +2,7 @@ from livekit.api import AccessToken, VideoGrants
 from app.core.config import settings
 
 
-def create_room_token(identity: str, room_name: str):
+def create_room_token(identity: str, room_name: str, metadata: str = ""):
     """Create a LiveKit room access token for a participant."""
 
     token = AccessToken(
@@ -12,6 +12,8 @@ def create_room_token(identity: str, room_name: str):
 
     token.with_identity(identity)
     token.with_name(identity)
+    if metadata:
+        token.with_metadata(metadata)
 
     grant = VideoGrants(
         room_join=True,

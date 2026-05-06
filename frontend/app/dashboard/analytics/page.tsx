@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Phone, CheckCircle, XCircle, Clock } from "lucide-react";
+import { Phone, CheckCircle, XCircle, Clock, Activity } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 interface AnalyticsData {
     total_calls: number;
     completed_calls: number;
     failed_calls: number;
     average_duration_seconds: number;
+    call_trends: { date: string; calls: number }[];
 }
 
 export default function AnalyticsPage() {
@@ -66,20 +68,32 @@ export default function AnalyticsPage() {
             </div>
             
             <div className="bg-white rounded-3xl p-8 border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
-                <h3 className="text-xl font-semibold text-slate-800 mb-6">Call Performance Trends</h3>
-                <div className="h-64 flex flex-col items-center justify-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                    <ActivityIcon className="w-10 h-10 mb-3 opacity-50" />
-                    <p>More detailed charts coming soon</p>
-                </div>
+                <h3 className="text-xl font-semibold text-slate-800 mb-6 flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-indigo-500" />
+                    Call Volume Trends (Last 7 Days)
+                </h3>
+                
+                {data?.call_trends && data.call_trends.length > 0 ? (
+                    <div className="h-72 w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={data.call_trends} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} dy={10} />
+                                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                                <Tooltip 
+                                    cursor={{ fill: '#f8fafc' }}
+                                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}
+                                />
+                                <Bar dataKey="calls" fill="#6366f1" radius={[6, 6, 0, 0]} maxBarSize={50} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                ) : (
+                    <div className="h-64 flex flex-col items-center justify-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                        <p>No call data available for trends.</p>
+                    </div>
+                )}
             </div>
         </div>
     );
-}
-
-function ActivityIcon(props: any) {
-  return (
-    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-    </svg>
-  )
 }

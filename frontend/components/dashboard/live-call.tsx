@@ -4,7 +4,12 @@ import { useState, useEffect, useRef } from "react";
 import { Room, RoomEvent, Track, RemoteTrackPublication, RemoteParticipant } from "livekit-client";
 import { Mic, MicOff, Phone, PhoneOff, Activity, Volume2 } from "lucide-react";
 
-export default function LiveCall() {
+interface LiveCallProps {
+    campaignId?: string;
+    contactId?: string;
+}
+
+export default function LiveCall({ campaignId, contactId }: LiveCallProps) {
     const [room, setRoom] = useState<Room | null>(null);
     const [connected, setConnected] = useState(false);
     const [isConnecting, setIsConnecting] = useState(false);
@@ -14,8 +19,8 @@ export default function LiveCall() {
     const audioElementsRef = useRef<HTMLAudioElement[]>([]);
     const startTimeRef = useRef<Date | null>(null);
 
-    // Placeholder contact ID for logging (in reality, this would be passed in)
-    const testContactId = "71da3877-026b-49a2-9304-05dad8847a53"; // Example UUID
+    // Use passed contactId or fallback to placeholder for testing
+    const activeContactId = contactId || "71da3877-026b-49a2-9304-05dad8847a53";
 
     // Cleanup audio elements on unmount
     useEffect(() => {
@@ -42,15 +47,17 @@ export default function LiveCall() {
                 return;
             }
 
+            // Build URL with query params
+            let url = "http://localhost:8000/livekit/token?room_name=test-room";
+            if (campaignId) url += `&campaign_id=${campaignId}`;
+            if (activeContactId) url += `&contact_id=${activeContactId}`;
+
             // Fetch LiveKit token and URL from backend
-            const res = await fetch(
-                "http://localhost:8000/livekit/token?room_name=test-room",
-                {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                    },
-                }
-            );
+            const res = await fetch(url, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            });
 
             if (!res.ok) {
                 throw new Error("Failed to fetch token");
@@ -179,7 +186,7 @@ export default function LiveCall() {
                     Authorization: `Bearer ${token}`
                 },
                 body: JSON.stringify({
-                    contact_id: testContactId,
+                    contact_id: activeContactId,
                     status: "completed",
                     transcript: "AI: Hello, how can I help you today?\nUser: ...", // Placeholder for actual transcript
                     duration: durationSeconds
