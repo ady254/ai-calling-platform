@@ -12,6 +12,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voice-agent")
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "dev-internal-key-change-me")
 
 class MyAgent(Agent):
     def __init__(self, instructions: str):
@@ -20,23 +21,35 @@ class MyAgent(Agent):
 
 async def fetch_campaign(campaign_id: str):
     try:
+        headers = {"X-Internal-Key": INTERNAL_API_KEY}
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{BACKEND_URL}/agent/internal/campaign/{campaign_id}") as resp:
+            async with session.get(
+                f"{BACKEND_URL}/agent/internal/campaign/{campaign_id}",
+                headers=headers
+            ) as resp:
                 if resp.status == 200:
                     return await resp.json()
+                else:
+                    logger.warning(f"Campaign fetch returned {resp.status}")
     except Exception as e:
         logger.error(f"Failed to fetch campaign: {e}")
     return None
 
-async def save_call_log(contact_id: str, transcript: str, duration: int):
+async def save_call_log(contact_id: str, campaign_id: str, transcript: str, duration: int):
     try:
+        headers = {"X-Internal-Key": INTERNAL_API_KEY}
         async with aiohttp.ClientSession() as session:
-            await session.post(f"{BACKEND_URL}/agent/internal/call_log", json={
-                "contact_id": contact_id,
-                "status": "completed",
-                "transcript": transcript,
-                "duration": duration
-            })
+            await session.post(
+                f"{BACKEND_URL}/agent/internal/call_log",
+                headers=headers,
+                json={
+                    "contact_id": contact_id,
+                    "campaign_id": campaign_id,
+                    "status": "completed",
+                    "transcript": transcript,
+                    "duration": duration
+                }
+            )
     except Exception as e:
         logger.error(f"Failed to save call log: {e}")
 
@@ -107,7 +120,7 @@ async def entrypoint(ctx: JobContext):
         duration = int(end_time - start_time)
         full_transcript = "\n".join(my_agent.transcript)
         logger.info("Saving call log...")
-        asyncio.create_task(save_call_log(contact_id, full_transcript, duration))
+        asyncio.create_task(save_call_log(contact_id, campaign_id, full_transcript, duration))
 
 if __name__ == "__main__":
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))

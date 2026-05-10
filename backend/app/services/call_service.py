@@ -8,9 +8,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-async def start_call(db: AsyncSession, contact_id: str):
+async def start_call(db: AsyncSession, contact_id: str, campaign_id: str | None = None):
     """
     Initiate an outbound call via Twilio to the contact.
+    Optionally pass campaign_id for context.
     """
     stmt = select(Contact).filter(Contact.id == UUID(contact_id))
     result = await db.execute(stmt)
@@ -22,12 +23,16 @@ async def start_call(db: AsyncSession, contact_id: str):
     if not contact.phone_number:
         raise HTTPException(status_code=400, detail="Contact does not have a phone number")
 
-    logger.info(f"Starting Twilio outbound call to {contact.phone_number}")
-    
-    call_result = make_outbound_call(contact.phone_number)
-    
+    logger.info(f"Starting outbound call to {contact.phone_number}")
+
+    call_result = make_outbound_call(
+        to_number=contact.phone_number,
+        campaign_id=campaign_id,
+        contact_id=contact_id,
+    )
+
     return {
-        "status": "initiated",
+        "status": call_result.get("status", "unknown"),
         "contact_id": contact_id,
         "phone_number": contact.phone_number,
         "twilio_response": call_result

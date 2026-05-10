@@ -289,3 +289,7 @@ export default function LiveCall({ campaignId, contactId }: LiveCallProps) {
         </div>
     );
 }
+
+function saveCallLog() {
+    throw new Error("Function not implemented.");
+}

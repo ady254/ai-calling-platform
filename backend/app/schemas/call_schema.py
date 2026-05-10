@@ -11,7 +11,9 @@ class CallLogCreate(BaseModel):
 
 class CallLogOut(BaseModel):
     id: UUID
-    contact_id: UUID
+    contact_id: Optional[UUID] = None
+    campaign_id: Optional[UUID] = None
+    business_id: Optional[UUID] = None
     status: str
     transcript: Optional[str] = None
     created_at: Optional[datetime] = None
@@ -27,4 +29,6 @@ class AnalyticsOut(BaseModel):
     completed_calls: int
     failed_calls: int
     average_duration_seconds: float
+    active_campaigns: int = 0
+    total_contacts: int = 0
     call_trends: List[Dict[str, Any]] = []

@@ -13,7 +13,9 @@ class CallLog(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    contact_id = Column(UUID(as_uuid=True), ForeignKey("contacts.id"))
+    contact_id = Column(UUID(as_uuid=True), ForeignKey("contacts.id"), nullable=True)
+    campaign_id = Column(UUID(as_uuid=True), ForeignKey("campaigns.id"), nullable=True)
+    business_id = Column(UUID(as_uuid=True), ForeignKey("businesses.id"), nullable=True)
 
     status = Column(String)   # started, completed, failed
     transcript = Column(String, nullable=True)
@@ -26,5 +28,7 @@ class CallLog(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
-    
+
     contact = relationship("Contact", backref="call_logs")
+    campaign = relationship("Campaign", backref="call_logs")
+    business = relationship("Business", backref="call_logs")

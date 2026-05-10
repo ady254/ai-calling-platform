@@ -26,6 +26,17 @@ class Settings(BaseSettings):
     # TTS
     ELEVEN_API_KEY: str = Field(default="", description="ElevenLabs API key")
 
+    # Twilio Voice
+    TWILIO_ACCOUNT_SID: str = Field(default="", description="Twilio Account SID")
+    TWILIO_AUTH_TOKEN: str = Field(default="", description="Twilio Auth Token")
+    TWILIO_PHONE_NUMBER: str = Field(default="", description="Twilio phone number (E.164 format)")
+
+    # Internal API key for agent-to-backend communication
+    INTERNAL_API_KEY: str = Field(
+        default="dev-internal-key-change-me",
+        description="Shared secret for AI agent worker to call internal endpoints"
+    )
+
     # CORS
     ALLOWED_ORIGINS: str = Field(
         default="http://localhost:3000",

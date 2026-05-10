@@ -24,3 +24,34 @@ export const deleteCampaign = async (id: string) => {
 export const addContactsToCampaign = async (campaignId: string, contactIds: string[]) => {
     return api.post(`/campaign/${campaignId}/contacts`, { contact_ids: contactIds });
 };
+
+// ── Campaign Execution ──
+
+export const startCampaign = async (campaignId: string) => {
+    return api.post(`/call/campaign/${campaignId}/start`);
+};
+
+export const pauseCampaign = async (campaignId: string) => {
+    return api.post(`/call/campaign/${campaignId}/pause`);
+};
+
+export const stopCampaign = async (campaignId: string) => {
+    return api.post(`/call/campaign/${campaignId}/stop`);
+};
+
+export interface CampaignProgress {
+    campaign_id: string;
+    campaign_status: string;
+    is_running: boolean;
+    total_contacts: number;
+    pending: number;
+    calling: number;
+    completed: number;
+    failed: number;
+    skipped: number;
+    progress_percent: number;
+}
+
+export const getCampaignProgress = async (campaignId: string) => {
+    return api.get<CampaignProgress>(`/call/campaign/${campaignId}/progress`);
+};
