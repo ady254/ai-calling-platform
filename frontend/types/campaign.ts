@@ -18,7 +18,7 @@ export interface Campaign {
 }
 
 export interface CampaignCreate {
-    business_id: string;
+    business_id?: string;
     name: string;
     description?: string;
     objective?: string;
@@ -28,4 +28,5 @@ export interface CampaignCreate {
     max_retries?: number;
     scheduled_at?: string;
     contact_ids?: string[];
+    agent_id?: string;
 }

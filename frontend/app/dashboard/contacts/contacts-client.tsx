@@ -7,9 +7,18 @@ import { Button } from "@/components/ui/button";
 import { Plus, Upload, Search, Trash2, Phone, Mail } from "lucide-react";
 
 export default function ContactsPageClient() {
-    const { contacts, loading, error, removeContact, uploadCsv } = useContacts();
+    const { contacts, loading, error, addContact, removeContact, uploadCsv } = useContacts();
     const [searchTerm, setSearchTerm] = useState("");
     const [isUploading, setIsUploading] = useState(false);
+    const [showModal, setShowModal] = useState(false);
+    const [newContact, setNewContact] = useState({
+        name: "",
+        phone_number: "",
+        email: "",
+        company: "",
+        tags: ""
+    });
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     if (loading) return <div className="p-8">Loading contacts...</div>;
     if (error) return <div className="p-8 text-red-500">Error: {error}</div>;
@@ -35,6 +44,21 @@ export default function ContactsPageClient() {
         }
     };
 
+    const handleAddContact = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsSubmitting(true);
+        try {
+            await addContact(newContact);
+            setShowModal(false);
+            setNewContact({ name: "", phone_number: "", email: "", company: "", tags: "" });
+            alert("Contact added successfully!");
+        } catch (err: any) {
+            alert(`Failed to add contact: ${err.message}`);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
     return (
         <div className="w-full">
             <header className="mb-10 w-full flex justify-between items-end">
@@ -50,12 +74,84 @@ export default function ContactsPageClient() {
                             {isUploading ? "Importing..." : "Import CSV"}
                         </div>
                     </label>
-                    <Button className="gap-2">
+                    <Button className="gap-2" onClick={() => setShowModal(true)}>
                         <Plus className="w-4 h-4" />
                         Add Contact
                     </Button>
                 </div>
             </header>
+
+            {/* Add Contact Modal */}
+            {showModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <Card className="w-full max-w-md p-8 animate-in fade-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-2xl font-bold text-slate-800">Add New Contact</h2>
+                            <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600">
+                                <Plus className="w-6 h-6 rotate-45" />
+                            </button>
+                        </div>
+                        <form onSubmit={handleAddContact} className="space-y-4">
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-bold text-slate-500 uppercase ml-1">Full Name *</label>
+                                <input 
+                                    required
+                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                                    placeholder="John Doe"
+                                    value={newContact.name}
+                                    onChange={e => setNewContact({...newContact, name: e.target.value})}
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-bold text-slate-500 uppercase ml-1">Phone Number *</label>
+                                <input 
+                                    required
+                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                                    placeholder="+1234567890"
+                                    value={newContact.phone_number}
+                                    onChange={e => setNewContact({...newContact, phone_number: e.target.value})}
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-bold text-slate-500 uppercase ml-1">Email Address</label>
+                                <input 
+                                    type="email"
+                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                                    placeholder="john@example.com"
+                                    value={newContact.email}
+                                    onChange={e => setNewContact({...newContact, email: e.target.value})}
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-bold text-slate-500 uppercase ml-1">Company</label>
+                                    <input 
+                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                                        placeholder="Acme Inc"
+                                        value={newContact.company}
+                                        onChange={e => setNewContact({...newContact, company: e.target.value})}
+                                    />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-bold text-slate-500 uppercase ml-1">Tags</label>
+                                    <input 
+                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                                        placeholder="leads, vip"
+                                        value={newContact.tags}
+                                        onChange={e => setNewContact({...newContact, tags: e.target.value})}
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex gap-3 pt-4">
+                                <Button type="button" variant="outline" className="flex-1" onClick={() => setShowModal(false)}>Cancel</Button>
+                                <Button type="submit" className="flex-1" disabled={isSubmitting}>
+                                    {isSubmitting ? "Adding..." : "Save Contact"}
+                                </Button>
+                            </div>
+                        </form>
+                    </Card>
+                </div>
+            )}
 
             <Card className="p-6 mb-8">
                 <div className="relative">

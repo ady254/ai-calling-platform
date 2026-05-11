@@ -5,7 +5,7 @@ from datetime import datetime
 
 
 class CampaignCreate(BaseModel):
-    business_id: UUID
+    business_id: Optional[UUID] = None
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
     objective: Optional[str] = None

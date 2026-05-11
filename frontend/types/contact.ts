@@ -15,7 +15,7 @@ export interface Contact {
 }
 
 export interface ContactCreate {
-    business_id: string;
+    business_id?: string;
     name: string;
     phone_number: string;
     email?: string;

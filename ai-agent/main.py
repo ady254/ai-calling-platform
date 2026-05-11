@@ -78,6 +78,8 @@ async def entrypoint(ctx: JobContext):
     )
     voice_id = "qtqlHrXyBpEXHx2JBPgx" 
     greeting = "Hello, how can I help you today?"
+    stability = 0.5
+    similarity_boost = 0.75
 
     if campaign_id:
         logger.info(f"Fetching campaign config for: {campaign_id}")
@@ -86,6 +88,11 @@ async def entrypoint(ctx: JobContext):
             instructions = campaign.get("ai_prompt", instructions)
             if campaign.get("ai_voice"):
                 voice_id = campaign.get("ai_voice")
+            
+            # Use advanced settings if provided by the persona
+            stability = campaign.get("stability", stability)
+            similarity_boost = campaign.get("similarity_boost", similarity_boost)
+            
             greeting = f"Hi, I am calling about {campaign.get('name')}."
             
     my_agent = MyAgent(instructions=instructions)
@@ -97,7 +104,9 @@ async def entrypoint(ctx: JobContext):
         tts=elevenlabs.TTS(
             model="eleven_multilingual_v2",
             voice_id=voice_id,
-            api_key=os.getenv("ELEVEN_API_KEY")
+            api_key=os.getenv("ELEVEN_API_KEY"),
+            stability=stability,
+            similarity_boost=similarity_boost
         ),
         allow_interruptions=False
     )

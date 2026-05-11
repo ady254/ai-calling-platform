@@ -4,13 +4,16 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useCampaigns } from "@/hooks/useCampaign";
 import { useContacts } from "@/hooks/useContact";
+import { useAgents } from "@/hooks/useAgent";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { User, Sparkles } from "lucide-react";
 
 export default function CampaignForm() {
     const router = useRouter();
     const { addCampaign } = useCampaigns();
     const { contacts } = useContacts();
+    const { agents } = useAgents();
 
     const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
@@ -21,11 +24,10 @@ export default function CampaignForm() {
         ai_voice: "alloy",
         ai_prompt: "",
         max_retries: 2,
+        agent_id: "",
     });
     
-    // Hardcoded for demo purposes since auth user business ID logic isn't fully wired in UI state yet
-    // In production, this would come from a global auth state
-    const businessId = "123e4567-e89b-12d3-a456-426614174000"; 
+    // The backend will automatically assign the correct business_id based on your auth token.
 
     const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
 
@@ -44,11 +46,12 @@ export default function CampaignForm() {
         e.preventDefault();
         setLoading(true);
         try {
-            await addCampaign({
+            const payload = {
                 ...formData,
-                business_id: businessId, // Replace with actual business ID from auth context
+                agent_id: formData.agent_id || undefined,
                 contact_ids: selectedContacts
-            });
+            };
+            await addCampaign(payload as any);
             alert("Campaign created successfully!");
             router.push("/dashboard/campaigns");
         } catch (error: any) {
@@ -104,10 +107,42 @@ export default function CampaignForm() {
             </Card>
 
             <Card className="p-8">
-                <div className="mb-6">
-                    <h2 className="text-xl font-bold text-slate-800">AI Configuration</h2>
-                    <p className="text-sm text-slate-500">Configure how the AI agent behaves and sounds.</p>
+                <div className="mb-6 flex justify-between items-start">
+                    <div>
+                        <h2 className="text-xl font-bold text-slate-800">AI Configuration</h2>
+                        <p className="text-sm text-slate-500">Configure how the AI agent behaves and sounds.</p>
+                    </div>
+                    {formData.agent_id && (
+                        <div className="flex items-center gap-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg border border-indigo-100 animate-in fade-in slide-in-from-right-2">
+                            <Sparkles className="w-4 h-4" />
+                            <span className="text-xs font-bold uppercase tracking-wider">Persona Active</span>
+                        </div>
+                    )}
                 </div>
+
+                <div className="mb-8 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <label className="text-sm font-bold text-slate-700 uppercase tracking-wider ml-1 mb-2 block">Quick Select Agent Persona</label>
+                    <div className="relative">
+                        <select 
+                            name="agent_id"
+                            value={formData.agent_id}
+                            onChange={handleChange}
+                            className="w-full px-5 py-4 bg-white border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all appearance-none pr-12 font-medium"
+                        >
+                            <option value="">-- Manual Configuration --</option>
+                            {agents.map(agent => (
+                                <option key={agent.id} value={agent.id}>
+                                    {agent.name} ({agent.voice_id} voice)
+                                </option>
+                            ))}
+                        </select>
+                        <User className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 pointer-events-none" />
+                    </div>
+                    <p className="text-xs text-slate-400 mt-2 ml-1 italic">Selecting a persona will use its pre-configured prompt and voice settings.</p>
+                </div>
+
+                {!formData.agent_id ? (
+                    <div className="animate-in fade-in slide-in-from-top-2 duration-300">
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                     <div className="space-y-2">
@@ -151,17 +186,37 @@ export default function CampaignForm() {
                     </div>
                 </div>
 
-                <div className="space-y-2">
-                    <label className="text-sm font-semibold text-slate-700">System Prompt</label>
-                    <textarea 
-                        required
-                        name="ai_prompt"
-                        value={formData.ai_prompt}
-                        onChange={handleChange}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 min-h-[150px] font-mono text-sm"
-                        placeholder="You are a helpful assistant for..."
-                    />
+                    <div className="space-y-2">
+                        <label className="text-sm font-semibold text-slate-700">System Prompt</label>
+                        <textarea 
+                            required
+                            name="ai_prompt"
+                            value={formData.ai_prompt}
+                            onChange={handleChange}
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 min-h-[150px] font-mono text-sm"
+                            placeholder="You are a helpful assistant for..."
+                        />
+                    </div>
                 </div>
+                ) : (
+                    <div className="p-8 border-2 border-dashed border-indigo-100 rounded-2xl bg-indigo-50/20 flex flex-col items-center justify-center text-center animate-in zoom-in-95 duration-300">
+                        <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center mb-4 text-indigo-600">
+                            <Sparkles className="w-8 h-8" />
+                        </div>
+                        <h4 className="font-bold text-slate-800">Agent Persona Linked</h4>
+                        <p className="text-sm text-slate-500 max-w-xs mt-1">
+                            This campaign is using the settings from your selected persona. Manual configuration is hidden.
+                        </p>
+                        <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="mt-4 text-indigo-600"
+                            onClick={() => setFormData(prev => ({...prev, agent_id: ""}))}
+                        >
+                            Switch to Manual Mode
+                        </Button>
+                    </div>
+                )}
             </Card>
 
             <Card className="p-8">

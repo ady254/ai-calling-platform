@@ -1,20 +1,51 @@
-import logging
-from app.services.ai_service import generate_ai_response
-from app.services.voice_service import text_to_speech
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from uuid import UUID
+from typing import List
 
-logger = logging.getLogger(__name__)
+from app.models.agent import Agent
+from app.schemas.agent_schema import AgentCreate, AgentUpdate
 
 
-async def run_ai_agent(user_input: str, session_id: str = "default"):
-    """Process user input through AI and generate voice response."""
+async def create_agent(db: AsyncSession, data: AgentCreate) -> Agent:
+    agent = Agent(**data.model_dump())
+    db.add(agent)
+    await db.commit()
+    await db.refresh(agent)
+    return agent
 
-    ai_reply = await generate_ai_response(user_input, session_id=session_id)
 
-    audio_file = text_to_speech(ai_reply)
+async def get_agents_by_business(db: AsyncSession, business_id: UUID) -> List[Agent]:
+    stmt = select(Agent).filter(Agent.business_id == business_id).order_by(Agent.created_at.desc())
+    result = await db.execute(stmt)
+    return result.scalars().all()
 
-    logger.info(f"Agent response: text={ai_reply[:80]}..., audio={audio_file}")
 
-    return {
-        "text": ai_reply,
-        "audio": audio_file
-    }
+async def get_agent(db: AsyncSession, agent_id: UUID) -> Agent:
+    stmt = select(Agent).filter(Agent.id == agent_id)
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def update_agent(db: AsyncSession, agent_id: UUID, data: AgentUpdate) -> Agent:
+    agent = await get_agent(db, agent_id)
+    if not agent:
+        return None
+        
+    update_data = data.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(agent, key, value)
+        
+    await db.commit()
+    await db.refresh(agent)
+    return agent
+
+
+async def delete_agent(db: AsyncSession, agent_id: UUID) -> bool:
+    agent = await get_agent(db, agent_id)
+    if not agent:
+        return False
+        
+    await db.delete(agent)
+    await db.commit()
+    return True

@@ -9,9 +9,8 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Public URL for Twilio webhooks — set this when deploying
-# For local development, use ngrok: ngrok http 8000
-WEBHOOK_BASE_URL = settings.ALLOWED_ORIGINS.split(",")[0].replace("3000", "8000")
+# Public URL for Twilio webhooks — set this in .env (e.g., BASE_URL=https://xyz.ngrok-free.app)
+WEBHOOK_BASE_URL = settings.BASE_URL
 
 
 def make_outbound_call(

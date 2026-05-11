@@ -43,6 +43,13 @@ class Settings(BaseSettings):
         description="Comma-separated list of allowed CORS origins"
     )
 
+    # Public base URL for Twilio webhooks (e.g., ngrok URL)
+    BASE_URL: str = Field(
+        default="http://localhost:8000",
+        env="BASE_URL",
+        description="Publicly accessible URL for your backend"
+    )
+
     class Config:
         env_file = ".env"
         extra = "ignore"

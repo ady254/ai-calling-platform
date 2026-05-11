@@ -23,6 +23,7 @@ class Campaign(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     business_id = Column(UUID(as_uuid=True), ForeignKey("businesses.id"), nullable=False)
+    agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id"), nullable=True)
 
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
@@ -54,3 +55,4 @@ class Campaign(Base):
     # Relationships
     contacts = relationship("CampaignContact", back_populates="campaign", cascade="all, delete-orphan")
     business = relationship("Business", backref="campaigns")
+    agent = relationship("Agent", back_populates="campaigns")

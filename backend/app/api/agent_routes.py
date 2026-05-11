@@ -1,124 +1,171 @@
-import logging
-from fastapi import APIRouter, Depends, Header, HTTPException
-from pydantic import BaseModel
-from typing import Optional
-from app.services.agent_service import run_ai_agent
-from app.services.ai_service import clear_session
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from uuid import UUID
+from typing import List
+
+from app.schemas.agent_schema import AgentCreate, AgentUpdate, AgentOut
+from app.services.agent_service import (
+    create_agent, get_agents_by_business, get_agent,
+    update_agent, delete_agent
+)
+from app.models.business import Business
+from app.models.campaign import Campaign
+from app.models.agent import Agent
+from app.models.call_log import CallLog
+from app.schemas.call_schema import CallLogCreate
+from app.dependencies.database import get_db
 from app.dependencies.auth import get_current_user
 from app.core.config import settings
+from fastapi import Header
 
-logger = logging.getLogger(__name__)
 router = APIRouter()
 
+async def get_user_business(db: AsyncSession, user_id: str):
+    stmt = select(Business).filter(Business.user_id == UUID(user_id))
+    result = await db.execute(stmt)
+    business = result.scalar_one_or_none()
+    if not business:
+        raise HTTPException(status_code=404, detail="Business not found for user")
+    return business
 
-class MessageInput(BaseModel):
-    message: str
-    session_id: Optional[str] = "default"
-
-
-class SessionInput(BaseModel):
-    session_id: str
-
-
-@router.post("/start")
-async def start_agent(
-    data: MessageInput,
-    user_id: str = Depends(get_current_user)  # Now requires authentication
+@router.post("/", response_model=AgentOut)
+async def create_agent_route(
+    data: AgentCreate,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user)
 ):
-    """Process a message through the AI agent and return text + audio response."""
-    try:
-        logger.info(f"Agent request from user {user_id}: {data.message[:50]}...")
-        return await run_ai_agent(data.message, session_id=data.session_id)
-    except Exception as e:
-        import traceback
-        tb = traceback.format_exc()
-        logger.error(f"Agent error: {tb}")
-        return {"error": str(e), "traceback": tb}
+    business = await get_user_business(db, user_id)
+    data.business_id = business.id
+    return await create_agent(db, data)
 
-
-@router.post("/reset")
-async def reset_session(
-    data: SessionInput,
-    user_id: str = Depends(get_current_user)  # Now requires authentication
+@router.get("/", response_model=List[AgentOut])
+async def list_agents_route(
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user)
 ):
-    """Clear conversation history for a session."""
-    clear_session(data.session_id)
-    logger.info(f"Session {data.session_id} reset by user {user_id}")
-    return {"status": "ok", "message": f"Session {data.session_id} cleared"}
+    business = await get_user_business(db, user_id)
+    return await get_agents_by_business(db, business.id)
 
+@router.get("/{agent_id}", response_model=AgentOut)
+async def get_agent_route(
+    agent_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user)
+):
+    business = await get_user_business(db, user_id)
+    agent = await get_agent(db, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    if str(agent.business_id) != str(business.id):
+        raise HTTPException(status_code=403, detail="Not authorized to access this agent")
+    return agent
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Internal Routes for AI Agent Worker
-# Protected with a shared INTERNAL_API_KEY
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@router.put("/{agent_id}", response_model=AgentOut)
+async def update_agent_route(
+    agent_id: UUID,
+    data: AgentUpdate,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user)
+):
+    business = await get_user_business(db, user_id)
+    agent = await get_agent(db, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    if str(agent.business_id) != str(business.id):
+        raise HTTPException(status_code=403, detail="Not authorized to access this agent")
+    
+    return await update_agent(db, agent_id, data)
 
-from app.services.campaign_service import get_campaign
-from app.dependencies.database import get_db
-from sqlalchemy.ext.asyncio import AsyncSession
-from uuid import UUID
+@router.delete("/{agent_id}")
+async def delete_agent_route(
+    agent_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user)
+):
+    business = await get_user_business(db, user_id)
+    agent = await get_agent(db, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    if str(agent.business_id) != str(business.id):
+        raise HTTPException(status_code=403, detail="Not authorized to access this agent")
+    
+    success = await delete_agent(db, agent_id)
+    return {"success": success}
 
+# --- Internal Routes (for AI Agent Worker) ---
 
-def verify_internal_key(x_internal_key: str = Header(...)):
-    """Verify the shared secret sent by the AI agent worker."""
-    if x_internal_key != settings.INTERNAL_API_KEY:
-        logger.warning("Rejected internal API call — invalid key")
+async def verify_internal_key(x_internal_key: str = Header(None)):
+    if not x_internal_key or x_internal_key != settings.INTERNAL_API_KEY:
         raise HTTPException(status_code=403, detail="Invalid internal API key")
-    return True
 
-
-@router.get("/internal/campaign/{campaign_id}")
-async def get_campaign_for_agent(
+@router.get("/internal/campaign/{campaign_id}", tags=["Internal"])
+async def get_campaign_config_internal(
     campaign_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: bool = Depends(verify_internal_key)
+    _ = Depends(verify_internal_key)
 ):
-    """Internal route for AI Agent to fetch campaign details. Requires X-Internal-Key header."""
-    campaign = await get_campaign(db, campaign_id)
+    """
+    Returns the full configuration for an AI call, 
+    merging Campaign and Agent Persona settings.
+    """
+    # Fetch campaign
+    stmt = select(Campaign).filter(Campaign.id == campaign_id)
+    result = await db.execute(stmt)
+    campaign = result.scalar_one_or_none()
+    
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
-    return campaign
+        
+    config = {
+        "campaign_name": campaign.name,
+        "ai_prompt": campaign.ai_prompt,
+        "ai_voice": campaign.ai_voice,
+        "language": campaign.language,
+        "max_retries": campaign.max_retries,
+    }
+    
+    # If there's a linked agent, override with agent settings
+    if campaign.agent_id:
+        agent = await get_agent(db, campaign.agent_id)
+        if agent:
+            config["ai_prompt"] = agent.system_prompt
+            config["ai_voice"] = agent.voice_id
+            config["language"] = agent.language
+            config["stability"] = agent.stability
+            config["similarity_boost"] = agent.similarity_boost
+            
+    return config
 
-
-class InternalCallLogCreate(BaseModel):
-    contact_id: Optional[str] = None
-    campaign_id: Optional[str] = None
-    status: str
-    transcript: str
-    duration: int
-
-@router.post("/internal/call_log")
-async def create_call_log_for_agent(
-    data: InternalCallLogCreate,
+@router.post("/internal/call_log", tags=["Internal"])
+async def create_call_log_internal(
+    data: dict,  # Using dict because we need both contact and campaign ID
     db: AsyncSession = Depends(get_db),
-    _auth: bool = Depends(verify_internal_key)
+    _ = Depends(verify_internal_key)
 ):
-    """Internal route for AI Agent to save call logs. Requires X-Internal-Key header."""
-    from app.models.call_log import CallLog
-    from app.models.contact import Contact
-    import uuid
-    from datetime import datetime, timezone
-
-    # Resolve business_id from the contact if available
-    business_id = None
-    if data.contact_id:
-        from sqlalchemy import select
-        contact_stmt = select(Contact).filter(Contact.id == UUID(data.contact_id))
-        result = await db.execute(contact_stmt)
-        contact = result.scalar_one_or_none()
-        if contact:
-            business_id = contact.business_id
-
-    new_log = CallLog(
-        id=uuid.uuid4(),
-        contact_id=UUID(data.contact_id) if data.contact_id else None,
-        campaign_id=UUID(data.campaign_id) if data.campaign_id else None,
-        business_id=business_id,
-        status=data.status,
-        transcript=data.transcript,
-        duration=data.duration,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc)
+    """
+    Saves a call log from the AI worker.
+    """
+    campaign_id = UUID(data.get("campaign_id"))
+    contact_id = UUID(data.get("contact_id"))
+    
+    # Get campaign to find business_id
+    stmt = select(Campaign).filter(Campaign.id == campaign_id)
+    result = await db.execute(stmt)
+    campaign = result.scalar_one_or_none()
+    
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+        
+    call_log = CallLog(
+        contact_id=contact_id,
+        campaign_id=campaign_id,
+        business_id=campaign.business_id,
+        status=data.get("status", "completed"),
+        transcript=data.get("transcript"),
+        duration=data.get("duration", 0)
     )
-    db.add(new_log)
+    
+    db.add(call_log)
     await db.commit()
-    return {"status": "ok"}
+    return {"status": "success"}

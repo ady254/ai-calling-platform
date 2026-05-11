@@ -31,8 +31,7 @@ async def create_contact_route(
     user_id: str = Depends(get_current_user)
 ):
     business = await get_user_business(db, user_id)
-    if str(data.business_id) != str(business.id):
-        raise HTTPException(status_code=403, detail="Not authorized for this business")
+    data.business_id = business.id
     return await create_contact(db, data)
 
 @router.get("/", response_model=list[ContactOut])

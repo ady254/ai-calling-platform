@@ -5,7 +5,7 @@ from datetime import datetime
 
 
 class ContactCreate(BaseModel):
-    business_id: UUID
+    business_id: Optional[UUID] = None
     name: str = Field(..., min_length=1, max_length=255)
     phone_number: str = Field(..., min_length=1, max_length=50)
     email: Optional[str] = None
