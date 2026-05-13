@@ -4,21 +4,41 @@ import { useState } from "react";
 import { useAgents } from "../../../hooks/useAgent";
 import { Card } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
-import { Plus, User, Mic, Settings, Trash2, Edit2, Play, Languages } from "lucide-react";
+import { Plus, User, Mic, Settings, Trash2, Edit2, Play, Languages, Loader2 } from "lucide-react";
 import { AgentCreate } from "../../../types/agent";
+
+const ELEVENLABS_VOICES = [
+    { name: "Rachel (Calm)", id: "21m00Tcm4TlvDq8ikWAM" },
+    { name: "Clyde (War Veteran)", id: "2EiwWnXFnvU5JabPnv8n" },
+    { name: "Domi (Strong)", id: "AZnzlk1XvdvUeBnXmlld" },
+    { name: "Dave (Conversational)", id: "CYw3kZ02Hs0563txGlMy" },
+    { name: "Fin (Old Irish)", id: "D38z5RcWu1voky8WS1ja" },
+    { name: "Bella (Soft)", id: "EXAVITQu4vr4xnSDxMaL" },
+    { name: "Antoni (Well-rounded)", id: "ErXwobaYiN019PkySvjV" },
+    { name: "Charlie (Natural)", id: "IKne3meq5aSn9XLyUdCD" },
+    { name: "Callum (Transatlantic)", id: "N2lVS1w4EtoT3dr4eOWO" },
+    { name: "Patrick (Shouty)", id: "ODq5zmih8GrVes3RoDiz" },
+    { name: "Adam (Deep)", id: "pNInz6obpgDQGcFmaJcg" }
+];
+
+const getVoiceName = (id: string) => {
+    const voice = ELEVENLABS_VOICES.find(v => v.id === id);
+    return voice ? voice.name : "Custom Voice";
+};
 
 export default function AgentConfigurationClient() {
     const { agents, loading, error, addAgent, removeAgent, editAgent } = useAgents();
     const [showModal, setShowModal] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
+    const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
 
     const [formData, setFormData] = useState<AgentCreate>({
         name: "",
         description: "",
         system_prompt: "",
         language: "en",
-        voice_id: "alloy",
+        voice_id: "21m00Tcm4TlvDq8ikWAM",
         stability: 0.5,
         similarity_boost: 0.75
     });
@@ -51,11 +71,52 @@ export default function AgentConfigurationClient() {
             description: "",
             system_prompt: "",
             language: "en",
-            voice_id: "alloy",
+            voice_id: "21m00Tcm4TlvDq8ikWAM",
             stability: 0.5,
             similarity_boost: 0.75
         });
         setEditingId(null);
+    };
+
+    const handlePreviewVoice = async (agent: any) => {
+        if (playingVoiceId) return; // Prevent multiple clicks
+        
+        try {
+            setPlayingVoiceId(agent.id);
+            const token = localStorage.getItem("token");
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/agent/preview`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
+                body: JSON.stringify({ 
+                    voice_id: agent.voice_id,
+                    text: `Hi, I am ${agent.name}. ${agent.description || "I am your AI assistant."}`
+                })
+            });
+
+            if (!response.ok) throw new Error("Failed to generate voice preview");
+
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            
+            audio.onended = () => {
+                setPlayingVoiceId(null);
+                URL.revokeObjectURL(url);
+            };
+            audio.onerror = () => {
+                setPlayingVoiceId(null);
+                URL.revokeObjectURL(url);
+            };
+            
+            await audio.play();
+        } catch (err) {
+            console.error(err);
+            alert("Error playing voice preview. Ensure your ElevenLabs API Key is set in the backend.");
+            setPlayingVoiceId(null);
+        }
     };
 
     const handleEdit = (agent: any) => {
@@ -108,7 +169,7 @@ export default function AgentConfigurationClient() {
                             <div className="space-y-3 pt-4 border-t border-slate-50">
                                 <div className="flex items-center gap-2 text-sm text-slate-600">
                                     <Mic className="w-4 h-4 text-slate-400" />
-                                    <span className="font-medium capitalize">{agent.voice_id} Voice</span>
+                                    <span className="font-medium capitalize">{getVoiceName(agent.voice_id)} Voice</span>
                                 </div>
                                 <div className="flex items-center gap-2 text-sm text-slate-600">
                                     <Languages className="w-4 h-4 text-slate-400" />
@@ -118,9 +179,24 @@ export default function AgentConfigurationClient() {
                         </div>
                         <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
                             <span className="text-xs font-medium text-slate-400">Created {new Date(agent.created_at).toLocaleDateString()}</span>
-                            <Button variant="ghost" size="sm" className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 gap-1 text-xs">
-                                <Play className="w-3 h-3" />
-                                Preview Voice
+                            <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 gap-1 text-xs"
+                                onClick={() => handlePreviewVoice(agent)}
+                                disabled={playingVoiceId !== null && playingVoiceId !== agent.id}
+                            >
+                                {playingVoiceId === agent.id ? (
+                                    <>
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                        Playing...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Play className="w-3 h-3" />
+                                        Preview Voice
+                                    </>
+                                )}
                             </Button>
                         </div>
                     </Card>
@@ -215,12 +291,9 @@ export default function AgentConfigurationClient() {
                                             value={formData.voice_id}
                                             onChange={e => setFormData({...formData, voice_id: e.target.value})}
                                         >
-                                            <option value="alloy">Alloy (Neutral)</option>
-                                            <option value="echo">Echo (Warm)</option>
-                                            <option value="fable">Fable (British)</option>
-                                            <option value="onyx">Onyx (Deep)</option>
-                                            <option value="nova">Nova (Bright)</option>
-                                            <option value="shimmer">Shimmer (Soft)</option>
+                                            {ELEVENLABS_VOICES.map(voice => (
+                                                <option key={voice.id} value={voice.id}>{voice.name}</option>
+                                            ))}
                                         </select>
                                     </div>
 

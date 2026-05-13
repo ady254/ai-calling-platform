@@ -1,8 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
 from typing import List
+import io
+try:
+    from elevenlabs.client import ElevenLabs
+except ImportError:
+    pass
 
 from app.schemas.agent_schema import AgentCreate, AgentUpdate, AgentOut
 from app.services.agent_service import (
@@ -92,6 +98,34 @@ async def delete_agent_route(
     
     success = await delete_agent(db, agent_id)
     return {"success": success}
+
+@router.post("/preview")
+async def preview_agent_voice(
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user)
+):
+    business = await get_user_business(db, user_id)
+    
+    voice_id = data.get("voice_id")
+    text = data.get("text", "Hi! I am your AI agent. How can I help you today?")
+    if not voice_id:
+        raise HTTPException(status_code=400, detail="Voice ID is required")
+        
+    if not settings.ELEVEN_API_KEY:
+        raise HTTPException(status_code=500, detail="ElevenLabs API Key is not configured")
+        
+    try:
+        client = ElevenLabs(api_key=settings.ELEVEN_API_KEY)
+        audio = client.generate(
+            text=text,
+            voice=voice_id,
+            model="eleven_multilingual_v2"
+        )
+        audio_data = b"".join(audio)
+        return StreamingResponse(io.BytesIO(audio_data), media_type="audio/mpeg")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # --- Internal Routes (for AI Agent Worker) ---
 
