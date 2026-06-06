@@ -13,16 +13,9 @@ from app.services.contact_service import (
 from app.models.business import Business
 from app.dependencies.database import get_db
 from app.dependencies.auth import get_current_user
+from app.dependencies.business import get_user_business
 
 router = APIRouter()
-
-async def get_user_business(db: AsyncSession, user_id: str):
-    stmt = select(Business).filter(Business.user_id == UUID(user_id))
-    result = await db.execute(stmt)
-    business = result.scalar_one_or_none()
-    if not business:
-        raise HTTPException(status_code=404, detail="Business not found for user")
-    return business
 
 @router.post("/", response_model=ContactOut)
 async def create_contact_route(

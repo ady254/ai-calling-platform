@@ -7,6 +7,7 @@ from uuid import UUID
 from app.services.call_service import start_call
 from app.dependencies.database import get_db
 from app.dependencies.auth import get_current_user
+from app.dependencies.business import get_user_business
 from app.models.call_log import CallLog
 from app.models.contact import Contact
 from app.models.business import Business
@@ -14,18 +15,9 @@ from app.models.campaign import Campaign, CampaignStatus
 from app.models.campaign_contact import CampaignContact
 from app.schemas.call_schema import CallLogCreate, CallLogOut, AnalyticsOut
 from app.core.config import settings
+from app.core.rate_limit import limiter
 
 router = APIRouter()
-
-
-# ── Helper: resolve current user's business ──
-async def get_user_business(db: AsyncSession, user_id: str):
-    stmt = select(Business).filter(Business.user_id == UUID(user_id))
-    result = await db.execute(stmt)
-    business = result.scalar_one_or_none()
-    if not business:
-        raise HTTPException(status_code=404, detail="Business not found for user")
-    return business
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -40,7 +32,9 @@ from app.services.campaign_executor import (
 )
 
 @router.post("/campaign/{campaign_id}/start")
+@limiter.limit("30/minute")
 async def start_campaign(
+    request: Request,
     campaign_id: UUID,
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user)
@@ -72,7 +66,9 @@ async def start_campaign(
 
 
 @router.post("/campaign/{campaign_id}/pause")
+@limiter.limit("30/minute")
 async def pause_campaign(
+    request: Request,
     campaign_id: UUID,
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user)
@@ -92,7 +88,9 @@ async def pause_campaign(
 
 
 @router.post("/campaign/{campaign_id}/stop")
+@limiter.limit("30/minute")
 async def stop_campaign(
+    request: Request,
     campaign_id: UUID,
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user)
@@ -141,11 +139,34 @@ async def campaign_progress(
 
 from fastapi import Response
 import logging
+from twilio.request_validator import RequestValidator
+
 logger = logging.getLogger(__name__)
+
+
+async def _validate_twilio_signature(request: Request) -> bool:
+    """Validate that an incoming request genuinely came from Twilio."""
+    if not settings.TWILIO_AUTH_TOKEN:
+        logger.warning("Twilio auth token not configured — skipping signature validation")
+        return True  # Allow in dev mode when Twilio isn't configured
+    
+    validator = RequestValidator(settings.TWILIO_AUTH_TOKEN)
+    
+    # Reconstruct the full URL Twilio used
+    url = str(request.url)
+    
+    # Get the POST body as form data
+    form = await request.form()
+    params = dict(form)
+    
+    signature = request.headers.get("X-Twilio-Signature", "")
+    
+    return validator.validate(url, params, signature)
 
 
 @router.post("/twilio/twiml")
 async def twilio_twiml(
+    request: Request,
     campaign_id: Optional[str] = None,
     contact_id: Optional[str] = None,
 ):
@@ -153,6 +174,11 @@ async def twilio_twiml(
     Endpoint for Twilio to fetch TwiML instructions when a call connects.
     Plays a short greeting and (in production) bridges to LiveKit SIP.
     """
+    # Validate Twilio signature
+    if not await _validate_twilio_signature(request):
+        logger.warning("Invalid Twilio signature on TwiML request")
+        raise HTTPException(status_code=403, detail="Invalid Twilio signature")
+
     # For now: play a demo message. When LiveKit SIP trunk is configured,
     # this will <Dial><Sip> into a LiveKit room.
     greeting = "Hello, this is an AI assistant calling on behalf of our team."
@@ -178,6 +204,11 @@ async def twilio_status_callback(request: Request):
     Receives call status updates from Twilio.
     Twilio sends: CallSid, CallStatus, CallDuration, To, From, etc.
     """
+    # Validate Twilio signature
+    if not await _validate_twilio_signature(request):
+        logger.warning("Invalid Twilio signature on status callback")
+        raise HTTPException(status_code=403, detail="Invalid Twilio signature")
+
     try:
         form = await request.form()
         call_sid = form.get("CallSid", "")
@@ -218,7 +249,9 @@ async def twilio_status_callback(request: Request):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.post("/start/{contact_id}")
+@limiter.limit("30/minute")
 async def start_call_route(
+    request: Request,
     contact_id: str,
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user)

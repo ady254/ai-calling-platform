@@ -1,16 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.user_schema import UserCreate, UserLogin
 from app.dependencies.database import get_db
 from app.services.auth_service import create_user, login_user
 from app.dependencies.auth import get_current_user
+from app.core.rate_limit import limiter
 
 router = APIRouter()
 
 # Your existing JSON login (for frontend)
 @router.post("/login")
+@limiter.limit("5/minute")
 async def login(
+    request: Request,
     user_data: UserLogin,
     db: AsyncSession = Depends(get_db)
 ):
@@ -22,7 +25,9 @@ async def login(
 
 # NEW: OAuth2 form-based login (for Swagger UI Authorize button)
 @router.post("/token")
+@limiter.limit("5/minute")
 async def token_login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db)
 ):
@@ -34,9 +39,18 @@ async def token_login(
 
 
 @router.post("/signup")
-async def signup(user: UserCreate, db: AsyncSession = Depends(get_db)):
+@limiter.limit("3/minute")
+async def signup(
+    request: Request,
+    user: UserCreate, 
+    db: AsyncSession = Depends(get_db)
+):
     return await create_user(db, user.name, user.email, user.password)
 
 @router.get("/me")
-async def get_me(user_id: str = Depends(get_current_user)):
+@limiter.limit("30/minute")
+async def get_me(
+    request: Request,
+    user_id: str = Depends(get_current_user)
+):
     return {"user_id": user_id}

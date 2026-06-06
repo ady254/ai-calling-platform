@@ -52,7 +52,7 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - ./backend/.env
+      - ./.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-Ady4026}@postgres:5432/aicalling
       - ALLOWED_ORIGINS=http://localhost:3000,http://frontend:3000
@@ -67,6 +67,27 @@ services:
       - aicalling-net
 
   # =============================================
+  # ARQ Worker
+  # =============================================
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aicalling-worker
+    command: ["arq", "app.worker.WorkerSettings"]
+    env_file:
+      - ./.env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-Ady4026}@postgres:5432/aicalling
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - aicalling-net
+
+  # =============================================
   # LiveKit AI Agent Worker
   # =============================================
   ai-agent:
@@ -75,7 +96,7 @@ services:
       dockerfile: Dockerfile
     container_name: aicalling-agent
     env_file:
-      - ./ai-agent/.env
+      - ./.env
     environment:
       - BACKEND_URL=http://backend:8000
     depends_on:

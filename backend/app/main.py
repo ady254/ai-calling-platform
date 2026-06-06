@@ -15,6 +15,9 @@ from app.db import models
 from app.core.config import settings
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from app.core.rate_limit import limiter
 
 # Configure logging
 logging.basicConfig(
@@ -27,6 +30,10 @@ app = FastAPI(
     description="Backend API for V3 AI Voice Calling Platform",
     version="1.0.0",
 )
+
+# Rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.mount("/audio", StaticFiles(directory="audio"), name="audio")
 

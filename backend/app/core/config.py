@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 load_dotenv()
@@ -50,9 +50,27 @@ class Settings(BaseSettings):
         description="Publicly accessible URL for your backend"
     )
 
+    # Redis Config
+    REDIS_URL: str = Field(
+        default="redis://localhost:6379",
+        description="Redis connection URL for arq"
+    )
+
     class Config:
         env_file = ".env"
         extra = "ignore"
+
+    @model_validator(mode="after")
+    def validate_internal_key(self) -> 'Settings':
+        if self.INTERNAL_API_KEY == "dev-internal-key-change-me":
+            # Check if we are running in production/non-localhost environment
+            is_local = "localhost" in self.BASE_URL or "127.0.0.1" in self.BASE_URL
+            if not is_local:
+                raise ValueError(
+                    "Security Risk: INTERNAL_API_KEY cannot be set to the default value "
+                    "('dev-internal-key-change-me') in non-development/production environments."
+                )
+        return self
 
     @property
     def cors_origins(self) -> list[str]:
