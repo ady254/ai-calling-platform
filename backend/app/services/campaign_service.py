@@ -94,14 +94,27 @@ async def delete_campaign(db: AsyncSession, campaign_id: UUID):
     await db.commit()
     return result.rowcount > 0
 
-async def add_contacts_to_campaign(db: AsyncSession, campaign_id: UUID, contact_ids: list[UUID]):
-    for contact_id in contact_ids:
-        # Check if already exists
-        check_stmt = select(CampaignContact).filter_by(campaign_id=campaign_id, contact_id=contact_id)
-        result = await db.execute(check_stmt)
-        if not result.scalar_one_or_none():
-            cc = CampaignContact(campaign_id=campaign_id, contact_id=contact_id)
-            db.add(cc)
-    
+async def add_contacts_to_campaign(db: AsyncSession, campaign_id: UUID, contact_ids: list[UUID]) -> bool:
+    """
+    Add contacts to a campaign.
+
+    Fix #20: The old implementation ran one SELECT per contact to check for
+    duplicates (N+1 queries). This version uses a single PostgreSQL
+    INSERT … ON CONFLICT DO NOTHING, which is both correct and O(1) queries
+    regardless of how many contacts are being added.
+    """
+    if not contact_ids:
+        return True
+
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    rows = [
+        {"campaign_id": campaign_id, "contact_id": cid}
+        for cid in contact_ids
+    ]
+    stmt = pg_insert(CampaignContact).values(rows).on_conflict_do_nothing(
+        index_elements=["campaign_id", "contact_id"]
+    )
+    await db.execute(stmt)
     await db.commit()
     return True

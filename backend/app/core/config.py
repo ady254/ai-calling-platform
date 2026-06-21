@@ -31,10 +31,12 @@ class Settings(BaseSettings):
     TWILIO_AUTH_TOKEN: str = Field(default="", description="Twilio Auth Token")
     TWILIO_PHONE_NUMBER: str = Field(default="", description="Twilio phone number (E.164 format)")
 
-    # Internal API key for agent-to-backend communication
+    # Internal API key for agent-to-backend communication.
+    # Fix #4: There is NO safe default for this value in any environment.
+    # Generate with: python -c "import secrets; print(secrets.token_hex(32))"
     INTERNAL_API_KEY: str = Field(
         default="dev-internal-key-change-me",
-        description="Shared secret for AI agent worker to call internal endpoints"
+        description="Shared secret for AI agent worker to call internal endpoints (min 32 chars)"
     )
 
     # CORS
@@ -62,14 +64,20 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_internal_key(self) -> 'Settings':
+        # Fix #4: The old check only rejected the default in non-localhost envs,
+        # meaning a misconfigured BASE_URL could silently bypass it.
+        # Now we: (a) always reject the known-bad default, (b) require minimum
+        # 32 character length to prevent trivially guessable keys.
         if self.INTERNAL_API_KEY == "dev-internal-key-change-me":
-            # Check if we are running in production/non-localhost environment
-            is_local = "localhost" in self.BASE_URL or "127.0.0.1" in self.BASE_URL
-            if not is_local:
-                raise ValueError(
-                    "Security Risk: INTERNAL_API_KEY cannot be set to the default value "
-                    "('dev-internal-key-change-me') in non-development/production environments."
-                )
+            raise ValueError(
+                "Security Risk: INTERNAL_API_KEY is set to the default placeholder value. "
+                "Generate a secure key with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        if len(self.INTERNAL_API_KEY) < 32:
+            raise ValueError(
+                f"Security Risk: INTERNAL_API_KEY is too short ({len(self.INTERNAL_API_KEY)} chars). "
+                "Minimum required length is 32 characters."
+            )
         return self
 
     @property

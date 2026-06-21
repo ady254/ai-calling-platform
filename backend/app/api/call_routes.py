@@ -1,8 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, Header, Request
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+# Fix #32: All imports moved to the top of the file (previously split mid-file)
+import logging
 from typing import List, Optional
 from uuid import UUID
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func, text
+from twilio.request_validator import RequestValidator
+from twilio.twiml.voice_response import VoiceResponse
 
 from app.services.call_service import start_call
 from app.dependencies.database import get_db
@@ -18,6 +24,8 @@ from app.core.config import settings
 from app.core.rate_limit import limiter
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -42,7 +50,6 @@ async def start_campaign(
     """Start executing a campaign — calls all pending contacts sequentially."""
     business = await get_user_business(db, user_id)
 
-    # Verify campaign belongs to user's business
     campaign = (await db.execute(
         select(Campaign).filter(Campaign.id == campaign_id, Campaign.business_id == business.id)
     )).scalar_one_or_none()
@@ -53,7 +60,6 @@ async def start_campaign(
     if campaign.status in [CampaignStatus.ACTIVE]:
         raise HTTPException(status_code=400, detail="Campaign is already running")
 
-    # Check there are contacts to call
     contact_count = (await db.execute(
         select(func.count(CampaignContact.id)).where(CampaignContact.campaign_id == campaign_id)
     )).scalar() or 0
@@ -118,7 +124,6 @@ async def campaign_progress(
     """Get real-time progress of a campaign (pending/calling/completed/failed counts)."""
     business = await get_user_business(db, user_id)
 
-    # Verify ownership
     campaign = (await db.execute(
         select(Campaign).filter(Campaign.id == campaign_id, Campaign.business_id == business.id)
     )).scalar_one_or_none()
@@ -137,30 +142,17 @@ async def campaign_progress(
 # TWILIO WEBHOOKS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-from fastapi import Response
-import logging
-from twilio.request_validator import RequestValidator
-
-logger = logging.getLogger(__name__)
-
-
 async def _validate_twilio_signature(request: Request) -> bool:
     """Validate that an incoming request genuinely came from Twilio."""
     if not settings.TWILIO_AUTH_TOKEN:
         logger.warning("Twilio auth token not configured — skipping signature validation")
         return True  # Allow in dev mode when Twilio isn't configured
-    
+
     validator = RequestValidator(settings.TWILIO_AUTH_TOKEN)
-    
-    # Reconstruct the full URL Twilio used
     url = str(request.url)
-    
-    # Get the POST body as form data
     form = await request.form()
     params = dict(form)
-    
     signature = request.headers.get("X-Twilio-Signature", "")
-    
     return validator.validate(url, params, signature)
 
 
@@ -174,28 +166,29 @@ async def twilio_twiml(
     Endpoint for Twilio to fetch TwiML instructions when a call connects.
     Plays a short greeting and (in production) bridges to LiveKit SIP.
     """
-    # Validate Twilio signature
     if not await _validate_twilio_signature(request):
         logger.warning("Invalid Twilio signature on TwiML request")
         raise HTTPException(status_code=403, detail="Invalid Twilio signature")
 
-    # For now: play a demo message. When LiveKit SIP trunk is configured,
-    # this will <Dial><Sip> into a LiveKit room.
-    greeting = "Hello, this is an AI assistant calling on behalf of our team."
+    # Fix #13: Use the official Twilio TwiML builder instead of f-string construction.
+    # Raw f-strings allow XML injection if campaign_id/contact_id ever contain
+    # XML special characters or </Say> sequences.
+    response = VoiceResponse()
+
     if campaign_id:
         greeting = "Hello, you are being connected to our AI assistant."
+    else:
+        greeting = "Hello, this is an AI assistant calling on behalf of our team."
 
-    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say voice="Polly.Joanna">{greeting}</Say>
-    <Pause length="1"/>
-    <Say voice="Polly.Joanna">Thank you for your time. Goodbye.</Say>
-</Response>"""
+    response.say(greeting, voice="Polly.Joanna")
+    response.pause(length=1)
+    response.say("Thank you for your time. Goodbye.", voice="Polly.Joanna")
 
     # TODO: When LiveKit SIP trunk is set up, replace above with:
-    # <Dial><Sip>sip:campaign-{campaign_id}@your-livekit-sip-domain.com</Sip></Dial>
+    # dial = response.dial()
+    # dial.sip(f"sip:campaign-{campaign_id}@your-livekit-sip-domain.com")
 
-    return Response(content=twiml, media_type="text/xml")
+    return Response(content=str(response), media_type="text/xml")
 
 
 @router.post("/twilio/status-callback")
@@ -204,7 +197,6 @@ async def twilio_status_callback(request: Request):
     Receives call status updates from Twilio.
     Twilio sends: CallSid, CallStatus, CallDuration, To, From, etc.
     """
-    # Validate Twilio signature
     if not await _validate_twilio_signature(request):
         logger.warning("Invalid Twilio signature on status callback")
         raise HTTPException(status_code=403, detail="Invalid Twilio signature")
@@ -222,7 +214,6 @@ async def twilio_status_callback(request: Request):
         )
 
         # Map Twilio statuses to our internal statuses
-        # Twilio sends: queued, ringing, in-progress, completed, busy, failed, no-answer, canceled
         status_map = {
             "completed": "completed",
             "busy": "failed",
@@ -234,8 +225,7 @@ async def twilio_status_callback(request: Request):
         if call_status in status_map:
             internal_status = status_map[call_status]
             logger.info(f"Call {call_sid} final status: {call_status} → {internal_status}")
-            # Note: Call logs are created by the campaign executor.
-            # In production, update the existing call log using the CallSid.
+            # TODO: Update the existing call log row using the CallSid as lookup key.
 
         return {"status": "ok"}
 
@@ -354,6 +344,7 @@ async def get_call_logs(
         select(CallLog)
         .filter(CallLog.business_id == business.id)
         .order_by(CallLog.created_at.desc())
+        .limit(200)  # Safety cap — TODO: add proper pagination (offset/cursor)
     )
     result = await db.execute(stmt)
     return result.scalars().all()
@@ -372,11 +363,15 @@ async def get_analytics(
     )).scalar() or 0
 
     completed_calls = (await db.execute(
-        select(func.count(CallLog.id)).where(CallLog.business_id == biz_id, CallLog.status == "completed")
+        select(func.count(CallLog.id)).where(
+            CallLog.business_id == biz_id, CallLog.status == "completed"
+        )
     )).scalar() or 0
 
     failed_calls = (await db.execute(
-        select(func.count(CallLog.id)).where(CallLog.business_id == biz_id, CallLog.status == "failed")
+        select(func.count(CallLog.id)).where(
+            CallLog.business_id == biz_id, CallLog.status == "failed"
+        )
     )).scalar() or 0
 
     avg_duration = (await db.execute(
@@ -394,24 +389,37 @@ async def get_analytics(
         select(func.count(Contact.id)).where(Contact.business_id == biz_id)
     )).scalar() or 0
 
-    from datetime import datetime, timedelta, timezone
+    # Fix #7: Replace loading all CallLog ORM objects into memory for trend
+    # calculation with a single SQL DATE_TRUNC + GROUP BY aggregate query.
+    # Previously this fetched full rows (with transcript text!) for every log
+    # in the last 7 days — catastrophic at scale. Now it's O(1) server memory.
     seven_days_ago = datetime.now(timezone.utc) - timedelta(days=6)
 
-    trend_stmt = select(CallLog).where(
-        CallLog.business_id == biz_id,
-        CallLog.created_at >= seven_days_ago
-    )
-    recent_logs = (await db.execute(trend_stmt)).scalars().all()
+    trend_rows = (await db.execute(
+        select(
+            func.to_char(
+                func.date_trunc("day", CallLog.created_at),
+                "Mon DD"
+            ).label("day"),
+            func.count(CallLog.id).label("calls"),
+        )
+        .where(
+            CallLog.business_id == biz_id,
+            CallLog.created_at >= seven_days_ago,
+        )
+        .group_by(func.date_trunc("day", CallLog.created_at))
+        .order_by(func.date_trunc("day", CallLog.created_at).asc())
+    )).all()
 
-    trends_dict = {}
+    # Build the full 7-day scaffold so days with zero calls still appear
+    trends_dict: dict[str, int] = {}
     for i in range(6, -1, -1):
         day_str = (datetime.now(timezone.utc) - timedelta(days=i)).strftime("%b %d")
         trends_dict[day_str] = 0
-    for log in recent_logs:
-        if log.created_at:
-            day_str = log.created_at.strftime("%b %d")
-            if day_str in trends_dict:
-                trends_dict[day_str] += 1
+    for row in trend_rows:
+        day_str = row.day.strip()
+        if day_str in trends_dict:
+            trends_dict[day_str] = row.calls
 
     return AnalyticsOut(
         total_calls=total_calls,

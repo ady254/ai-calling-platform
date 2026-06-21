@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from uuid import UUID
 import csv
 import io
@@ -10,12 +11,17 @@ from app.services.contact_service import (
     create_contact, get_contacts_by_business, get_contact,
     update_contact, delete_contact
 )
-from app.models.business import Business
+from app.models.contact import Contact
+from app.models.campaign_contact import CampaignContact
 from app.dependencies.database import get_db
 from app.dependencies.auth import get_current_user
 from app.dependencies.business import get_user_business
 
 router = APIRouter()
+
+# Fix #18: Maximum allowed CSV upload size (5 MB)
+MAX_CSV_BYTES = 5 * 1024 * 1024
+
 
 @router.post("/", response_model=ContactOut)
 async def create_contact_route(
@@ -27,6 +33,7 @@ async def create_contact_route(
     data.business_id = business.id
     return await create_contact(db, data)
 
+
 @router.get("/", response_model=list[ContactOut])
 async def list_contacts_route(
     db: AsyncSession = Depends(get_db),
@@ -34,6 +41,7 @@ async def list_contacts_route(
 ):
     business = await get_user_business(db, user_id)
     return await get_contacts_by_business(db, business.id)
+
 
 @router.get("/{contact_id}", response_model=ContactOut)
 async def get_contact_route(
@@ -49,6 +57,7 @@ async def get_contact_route(
         raise HTTPException(status_code=403, detail="Not authorized to access this contact")
     return contact
 
+
 @router.put("/{contact_id}", response_model=ContactOut)
 async def update_contact_route(
     contact_id: UUID,
@@ -62,8 +71,9 @@ async def update_contact_route(
         raise HTTPException(status_code=404, detail="Contact not found")
     if str(contact.business_id) != str(business.id):
         raise HTTPException(status_code=403, detail="Not authorized to access this contact")
-    
+
     return await update_contact(db, contact_id, data)
+
 
 @router.delete("/{contact_id}")
 async def delete_contact_route(
@@ -77,9 +87,10 @@ async def delete_contact_route(
         raise HTTPException(status_code=404, detail="Contact not found")
     if str(contact.business_id) != str(business.id):
         raise HTTPException(status_code=403, detail="Not authorized to access this contact")
-    
+
     success = await delete_contact(db, contact_id)
     return {"success": success}
+
 
 @router.post("/import")
 async def import_contacts_csv(
@@ -88,33 +99,52 @@ async def import_contacts_csv(
     user_id: str = Depends(get_current_user)
 ):
     business = await get_user_business(db, user_id)
-    
-    if not file.filename.endswith('.csv'):
+
+    if not file.filename or not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
-        
-    contents = await file.read()
+
+    # Fix #18: Enforce a file size limit before reading the whole file into memory.
+    # A missing/None content_length means we read up to the limit + 1 byte to detect oversize.
+    contents = await file.read(MAX_CSV_BYTES + 1)
+    if len(contents) > MAX_CSV_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum allowed size is {MAX_CSV_BYTES // (1024 * 1024)} MB.",
+        )
+
     try:
-        csv_data = contents.decode('utf-8')
+        csv_data = contents.decode("utf-8")
         reader = csv.DictReader(io.StringIO(csv_data))
-        
-        imported_count = 0
+
+        contacts_to_add: list[ContactCreate] = []
         for row in reader:
-            # Basic validation
-            name = row.get('name', '').strip()
-            phone = row.get('phone_number', '').strip()
-            
+            name = row.get("name", "").strip()
+            phone = row.get("phone_number", "").strip()
             if name and phone:
-                contact_data = ContactCreate(
-                    business_id=business.id,
-                    name=name,
-                    phone_number=phone,
-                    email=row.get('email', '').strip() or None,
-                    company=row.get('company', '').strip() or None,
-                    tags=row.get('tags', '').strip() or None,
+                contacts_to_add.append(
+                    ContactCreate(
+                        business_id=business.id,
+                        name=name,
+                        phone_number=phone,
+                        email=row.get("email", "").strip() or None,
+                        company=row.get("company", "").strip() or None,
+                        tags=row.get("tags", "").strip() or None,
+                    )
                 )
-                await create_contact(db, contact_data)
-                imported_count += 1
-                
+
+        # Fix #19: Batch all inserts — flush per row, single commit at the end.
+        # Previously each create_contact() committed individually (N round-trips).
+        imported_count = 0
+        for contact_data in contacts_to_add:
+            await create_contact(db, contact_data, auto_commit=False)
+            imported_count += 1
+
+        await db.commit()
+
         return {"success": True, "imported": imported_count}
+
+    except HTTPException:
+        raise
     except Exception as e:
+        await db.rollback()
         raise HTTPException(status_code=400, detail=f"Error processing CSV: {str(e)}")

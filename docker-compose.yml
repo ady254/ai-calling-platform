@@ -9,7 +9,7 @@ services:
     container_name: aicalling-db
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-Ady4026}
+      POSTGRES_PASSWORD: ${DB_PASSWORD?DB_PASSWORD must be set in .env}
       POSTGRES_DB: aicalling
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -54,7 +54,7 @@ services:
     env_file:
       - ./.env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-Ady4026}@postgres:5432/aicalling
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD?DB_PASSWORD must be set in .env}@postgres:5432/aicalling
       - ALLOWED_ORIGINS=http://localhost:3000,http://frontend:3000
     depends_on:
       postgres:
@@ -78,7 +78,7 @@ services:
     env_file:
       - ./.env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-Ady4026}@postgres:5432/aicalling
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD?DB_PASSWORD must be set in .env}@postgres:5432/aicalling
     depends_on:
       postgres:
         condition: service_healthy

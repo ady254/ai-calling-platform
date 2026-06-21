@@ -5,10 +5,18 @@ from sqlalchemy import select
 from uuid import UUID
 from typing import List
 import io
+# Fix #22: Replace silent `except ImportError: pass` with a proper sentinel.
+# If elevenlabs is not installed, ElevenLabs is None and the /preview endpoint
+# returns a clean 503 instead of crashing with a NameError at call time.
 try:
-    from elevenlabs.client import ElevenLabs
+    from elevenlabs.client import ElevenLabs as _ElevenLabsClient
 except ImportError:
-    pass
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "elevenlabs package is not installed — voice preview endpoint will be unavailable. "
+        "Install it with: pip install elevenlabs"
+    )
+    _ElevenLabsClient = None  # type: ignore[assignment,misc]
 
 from app.schemas.agent_schema import AgentCreate, AgentUpdate, AgentOut
 from app.services.agent_service import (
@@ -105,11 +113,18 @@ async def preview_agent_voice(
     if not voice_id:
         raise HTTPException(status_code=400, detail="Voice ID is required")
         
+    # Fix #22: Guard against the package not being installed.
+    if _ElevenLabsClient is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Voice preview is unavailable: the ElevenLabs package is not installed on this server.",
+        )
+
     if not settings.ELEVEN_API_KEY:
         raise HTTPException(status_code=500, detail="ElevenLabs API Key is not configured")
-        
+
     try:
-        client = ElevenLabs(api_key=settings.ELEVEN_API_KEY)
+        client = _ElevenLabsClient(api_key=settings.ELEVEN_API_KEY)
         audio = client.generate(
             text=text,
             voice=voice_id,
@@ -122,8 +137,9 @@ async def preview_agent_voice(
 
 # --- Internal Routes (for AI Agent Worker) ---
 
-async def verify_internal_key(x_internal_key: str = Header(None)):
-    if not x_internal_key or x_internal_key != settings.INTERNAL_API_KEY:
+# Fix #4: Require the header to be present and check its length
+async def verify_internal_key(x_internal_key: str = Header(...)):
+    if not x_internal_key or x_internal_key != settings.INTERNAL_API_KEY or len(x_internal_key) < 32:
         raise HTTPException(status_code=403, detail="Invalid internal API key")
 
 @router.get("/internal/campaign/{campaign_id}", tags=["Internal"])

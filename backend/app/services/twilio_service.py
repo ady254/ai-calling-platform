@@ -4,6 +4,8 @@ Twilio voice service.
 Handles outbound call creation with campaign context and status callback support.
 """
 import logging
+import urllib.parse
+
 from twilio.rest import Client
 from app.core.config import settings
 
@@ -17,10 +19,14 @@ def make_outbound_call(
     to_number: str,
     campaign_id: str | None = None,
     contact_id: str | None = None,
-):
+) -> dict:
     """
     Make an outbound call using Twilio.
     Falls back to simulation if credentials are not configured.
+
+    NOTE: This function is synchronous (Twilio SDK uses `requests` internally).
+    Always call it via `asyncio.to_thread(make_outbound_call, ...)` from async code
+    to avoid blocking the event loop.
 
     Free trial notes:
       - You can only call numbers verified in your Twilio Console.
@@ -33,20 +39,24 @@ def make_outbound_call(
             "status": "simulated",
             "to": to_number,
             "campaign_id": campaign_id,
-            "note": "Configure TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER in .env to make real calls"
+            "note": (
+                "Configure TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and "
+                "TWILIO_PHONE_NUMBER in .env to make real calls"
+            ),
         }
 
     try:
         client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
 
-        # Build TwiML URL with campaign context as query params
+        # Fix #14: URL-encode query parameters to handle any special characters
+        # in campaign_id / contact_id (e.g. UUIDs are safe, but defensive coding).
         twiml_url = f"{WEBHOOK_BASE_URL}/call/twilio/twiml"
         if campaign_id:
-            twiml_url += f"?campaign_id={campaign_id}"
+            params: dict[str, str] = {"campaign_id": campaign_id}
             if contact_id:
-                twiml_url += f"&contact_id={contact_id}"
+                params["contact_id"] = contact_id
+            twiml_url = f"{twiml_url}?{urllib.parse.urlencode(params)}"
 
-        # Status callback URL to track call lifecycle
         status_callback_url = f"{WEBHOOK_BASE_URL}/call/twilio/status-callback"
 
         call = client.calls.create(

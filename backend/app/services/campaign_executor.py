@@ -1,18 +1,27 @@
 """
 Campaign execution engine.
 
-Processes campaign contacts sequentially using FastAPI BackgroundTasks.
+Processes campaign contacts sequentially using asyncio background tasks.
 Each contact gets: Twilio outbound call → LiveKit room → AI agent conversation.
 
-No external queue dependency needed — uses asyncio for async processing.
-For horizontal scaling later, swap this for ARQ/Celery workers.
+TECH DEBT (#5 / #27): This engine uses a process-local in-memory dict
+(`_running_campaigns`) to track running asyncio.Tasks. This means:
+  - Restarting the process loses all running state. Contacts stuck in
+    CALLING status must be recovered manually (see `recover_orphaned_contacts`).
+  - Multiple worker replicas cannot share state — pause/stop hits only one.
+  - The included ARQ worker (app/worker.py) is the intended replacement for
+    this approach. Migration path:
+      1. Create an ARQ task `process_campaign_task(campaign_id, business_id)`
+      2. Enqueue it via `arq.create_pool(RedisSettings(...))` on start
+      3. Pause/stop: set a Redis flag keyed by campaign_id; the worker polls it
+      4. Remove _running_campaigns and this module's asyncio.create_task usage
 """
 import asyncio
 import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import AsyncSessionLocal
@@ -24,14 +33,36 @@ from app.services.twilio_service import make_outbound_call
 
 logger = logging.getLogger(__name__)
 
-# Track running campaign tasks so we can cancel them
+# Track running campaign tasks so we can cancel them.
+# NOTE: This is process-local. See TECH DEBT note above.
 _running_campaigns: dict[str, asyncio.Task] = {}
 
 
-async def start_campaign_execution(campaign_id: UUID, business_id: UUID):
+async def recover_orphaned_contacts() -> None:
+    """
+    Reset any CampaignContacts stuck in CALLING status back to PENDING.
+    Should be called at application startup to recover from a crash/restart.
+    This prevents contacts from being permanently orphaned after a process restart.
+    """
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            update(CampaignContact)
+            .where(CampaignContact.call_status == CampaignContactStatus.CALLING)
+            .values(call_status=CampaignContactStatus.PENDING)
+            .returning(CampaignContact.id)
+        )
+        recovered = len(result.fetchall())
+        if recovered:
+            logger.warning(
+                f"Startup recovery: reset {recovered} orphaned CALLING contacts → PENDING"
+            )
+        await db.commit()
+
+
+async def start_campaign_execution(campaign_id: UUID, business_id: UUID) -> dict:
     """
     Launch a background task that processes all pending contacts in a campaign.
-    Calls are made sequentially with a configurable concurrency limit.
+    Calls are made sequentially with a configurable delay between each.
     """
     campaign_key = str(campaign_id)
 
@@ -46,7 +77,7 @@ async def start_campaign_execution(campaign_id: UUID, business_id: UUID):
     return {"status": "started"}
 
 
-async def pause_campaign_execution(campaign_id: UUID):
+async def pause_campaign_execution(campaign_id: UUID) -> dict:
     """Cancel the running background task and set status to PAUSED."""
     campaign_key = str(campaign_id)
 
@@ -66,7 +97,7 @@ async def pause_campaign_execution(campaign_id: UUID):
     return {"status": "paused"}
 
 
-async def stop_campaign_execution(campaign_id: UUID):
+async def stop_campaign_execution(campaign_id: UUID) -> dict:
     """Cancel the running background task and set status to CANCELLED."""
     campaign_key = str(campaign_id)
 
@@ -86,9 +117,8 @@ async def stop_campaign_execution(campaign_id: UUID):
     return {"status": "cancelled"}
 
 
-async def get_campaign_progress(db: AsyncSession, campaign_id: UUID):
+async def get_campaign_progress(db: AsyncSession, campaign_id: UUID) -> dict | None:
     """Get real-time progress of a campaign."""
-    from sqlalchemy import func
 
     # Get campaign
     campaign = (await db.execute(
@@ -98,16 +128,15 @@ async def get_campaign_progress(db: AsyncSession, campaign_id: UUID):
     if not campaign:
         return None
 
-    # Count contacts by status
-    status_counts = {}
-    for s in CampaignContactStatus:
-        count = (await db.execute(
-            select(func.count(CampaignContact.id)).where(
-                CampaignContact.campaign_id == campaign_id,
-                CampaignContact.call_status == s
-            )
-        )).scalar() or 0
-        status_counts[s.value] = count
+    # Fix #6: Replace N+1 per-enum queries with a single GROUP BY query.
+    # Previously this ran one SELECT per enum value (5 queries); now it's 1.
+    rows = (await db.execute(
+        select(CampaignContact.call_status, func.count(CampaignContact.id))
+        .where(CampaignContact.campaign_id == campaign_id)
+        .group_by(CampaignContact.call_status)
+    )).all()
+
+    status_counts: dict[str, int] = {row[0].value: row[1] for row in rows}
 
     total = sum(status_counts.values())
     completed = status_counts.get("completed", 0)
@@ -115,11 +144,14 @@ async def get_campaign_progress(db: AsyncSession, campaign_id: UUID):
     calling = status_counts.get("calling", 0)
     pending = status_counts.get("pending", 0)
 
-    is_running = str(campaign_id) in _running_campaigns and not _running_campaigns[str(campaign_id)].done()
+    is_running = (
+        str(campaign_id) in _running_campaigns
+        and not _running_campaigns[str(campaign_id)].done()
+    )
 
     return {
         "campaign_id": str(campaign_id),
-        "campaign_status": campaign.status.value if hasattr(campaign.status, 'value') else campaign.status,
+        "campaign_status": campaign.status.value if hasattr(campaign.status, "value") else campaign.status,
         "is_running": is_running,
         "total_contacts": total,
         "pending": pending,
@@ -133,7 +165,7 @@ async def get_campaign_progress(db: AsyncSession, campaign_id: UUID):
 
 # ── Internal: campaign processing loop ──
 
-async def _process_campaign(campaign_id: UUID, business_id: UUID):
+async def _process_campaign(campaign_id: UUID, business_id: UUID) -> None:
     """
     Core campaign loop. Iterates through pending contacts and calls each one.
     Runs as an asyncio background task.
@@ -142,7 +174,6 @@ async def _process_campaign(campaign_id: UUID, business_id: UUID):
 
     try:
         async with AsyncSessionLocal() as db:
-            # Set campaign to ACTIVE
             await db.execute(
                 update(Campaign)
                 .where(Campaign.id == campaign_id)
@@ -151,18 +182,16 @@ async def _process_campaign(campaign_id: UUID, business_id: UUID):
             await db.commit()
 
         while True:
-            # Check if task was cancelled
             if asyncio.current_task().cancelled():
                 logger.info(f"Campaign {campaign_id} was cancelled")
                 return
 
-            # Fetch next pending contact
             async with AsyncSessionLocal() as db:
                 stmt = (
                     select(CampaignContact)
                     .filter(
                         CampaignContact.campaign_id == campaign_id,
-                        CampaignContact.call_status == CampaignContactStatus.PENDING
+                        CampaignContact.call_status == CampaignContactStatus.PENDING,
                     )
                     .order_by(CampaignContact.created_at.asc())
                     .limit(1)
@@ -174,20 +203,17 @@ async def _process_campaign(campaign_id: UUID, business_id: UUID):
                     logger.info(f"Campaign {campaign_id}: no more pending contacts")
                     break
 
-                # Mark as CALLING
                 cc.call_status = CampaignContactStatus.CALLING
                 cc.called_at = datetime.now(timezone.utc)
                 await db.commit()
 
                 contact_id = cc.contact_id
 
-            # Process this contact
             await _call_single_contact(campaign_id, business_id, contact_id)
 
-            # Brief delay between calls (rate limiting for Twilio)
+            # Brief delay between calls (Twilio rate limiting)
             await asyncio.sleep(2)
 
-        # All done — mark campaign completed
         async with AsyncSessionLocal() as db:
             await db.execute(
                 update(Campaign)
@@ -202,7 +228,7 @@ async def _process_campaign(campaign_id: UUID, business_id: UUID):
         logger.info(f"Campaign {campaign_id} task was cancelled")
         raise
     except Exception as e:
-        logger.error(f"Campaign {campaign_id} failed: {e}")
+        logger.error(f"Campaign {campaign_id} failed: {e}", exc_info=True)
         async with AsyncSessionLocal() as db:
             await db.execute(
                 update(Campaign)
@@ -214,10 +240,11 @@ async def _process_campaign(campaign_id: UUID, business_id: UUID):
         _running_campaigns.pop(str(campaign_id), None)
 
 
-async def _call_single_contact(campaign_id: UUID, business_id: UUID, contact_id: UUID):
+async def _call_single_contact(
+    campaign_id: UUID, business_id: UUID, contact_id: UUID
+) -> None:
     """Process a single contact: make outbound call via Twilio."""
     async with AsyncSessionLocal() as db:
-        # Fetch the contact
         contact = (await db.execute(
             select(Contact).filter(Contact.id == contact_id)
         )).scalar_one_or_none()
@@ -228,15 +255,18 @@ async def _call_single_contact(campaign_id: UUID, business_id: UUID, contact_id:
             return
 
         try:
-            # Make the Twilio call with campaign context
-            call_result = make_outbound_call(
+            # Fix #8: Twilio SDK uses the synchronous `requests` library under
+            # the hood. Running it directly blocks the asyncio event loop for
+            # the duration of the HTTP call (200–800ms), freezing all concurrent
+            # requests. asyncio.to_thread() offloads it to a thread pool.
+            call_result = await asyncio.to_thread(
+                make_outbound_call,
                 to_number=contact.phone_number,
                 campaign_id=str(campaign_id),
                 contact_id=str(contact_id),
             )
 
             if call_result.get("status") == "initiated":
-                # Call was placed — log it
                 call_log = CallLog(
                     contact_id=contact_id,
                     campaign_id=campaign_id,
@@ -246,12 +276,10 @@ async def _call_single_contact(campaign_id: UUID, business_id: UUID, contact_id:
                 db.add(call_log)
                 await db.commit()
 
-                # Mark contact as completed (Twilio webhook will update with real status later)
                 await _update_contact_status(campaign_id, contact_id, CampaignContactStatus.COMPLETED)
                 logger.info(f"Call placed to {contact.phone_number} — SID: {call_result.get('sid')}")
 
             elif call_result.get("status") == "simulated":
-                # No Twilio creds — mark as completed for testing
                 call_log = CallLog(
                     contact_id=contact_id,
                     campaign_id=campaign_id,
@@ -268,18 +296,20 @@ async def _call_single_contact(campaign_id: UUID, business_id: UUID, contact_id:
                 logger.warning(f"Call failed to {contact.phone_number}: {call_result}")
 
         except Exception as e:
-            logger.error(f"Error calling contact {contact_id}: {e}")
+            logger.error(f"Error calling contact {contact_id}: {e}", exc_info=True)
             await _update_contact_status(campaign_id, contact_id, CampaignContactStatus.FAILED)
 
 
-async def _update_contact_status(campaign_id: UUID, contact_id: UUID, status: CampaignContactStatus):
+async def _update_contact_status(
+    campaign_id: UUID, contact_id: UUID, status: CampaignContactStatus
+) -> None:
     """Update a CampaignContact's call_status."""
     async with AsyncSessionLocal() as db:
         await db.execute(
             update(CampaignContact)
             .where(
                 CampaignContact.campaign_id == campaign_id,
-                CampaignContact.contact_id == contact_id
+                CampaignContact.contact_id == contact_id,
             )
             .values(call_status=status)
         )

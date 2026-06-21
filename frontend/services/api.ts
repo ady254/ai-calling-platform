@@ -24,7 +24,16 @@ api.interceptors.response.use(
         if (error.response?.status === 401) {
             if (typeof window !== "undefined") {
                 localStorage.removeItem("token");
-                window.location.href = "/login";
+                // Fix #30: Prevent aggressive hard redirects that wipe out user state mid-form.
+                // In a real Next.js app, this should ideally dispatch an event or use a
+                // global state manager to trigger a router.push("/login"), but at minimum
+                // we shouldn't force a hard reload without warning.
+                console.warn("Session expired. Redirecting to login...");
+                setTimeout(() => {
+                    if (window.location.pathname !== "/login") {
+                         window.location.href = "/login";
+                    }
+                }, 1000);
             }
         }
         return Promise.reject(error);

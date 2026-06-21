@@ -1,5 +1,12 @@
 import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
 from app.api.auth_routes import router as auth_router
 from app.api.business_routes import router as business_router
 from app.api.campaign_routes import router as campaign_router
@@ -8,27 +15,38 @@ from app.api.call_routes import router as call_router
 from app.api.livekit_routes import router as livekit_router
 from app.api.agent_routes import router as agent_router
 
-from app.db.base import Base
-from app.db.session import engine
-from app.db import models
-
 from app.core.config import settings
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
 from app.core.rate_limit import limiter
+from app.services.campaign_executor import recover_orphaned_contacts
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
+logger = logging.getLogger(__name__)
+
+
+# Fix #11: Replace deprecated @app.on_event("startup") with lifespan context manager.
+# Fix #12: Removed `Base.metadata.create_all` from startup.
+#   → Use `alembic upgrade head` in your Dockerfile/entrypoint to apply migrations.
+#   → create_all only creates missing tables; it does NOT apply column changes,
+#     leading to silent schema drift in production.
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: recover any contacts orphaned in CALLING state by a prior crash
+    logger.info("Running startup recovery for orphaned campaign contacts...")
+    await recover_orphaned_contacts()
+    logger.info("Startup complete.")
+    yield
+    # Shutdown (add cleanup here if needed, e.g. close connection pools)
+
 
 app = FastAPI(
     title="AI Calling Platform API",
     description="Backend API for V3 AI Voice Calling Platform",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Rate limiting
@@ -37,13 +55,14 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.mount("/audio", StaticFiles(directory="audio"), name="audio")
 
-# Use restricted CORS origins from config instead of wildcard
+# Fix #23: Tighten CORS — restrict methods and headers instead of using wildcards.
+# Origins are already pulled from config (settings.cors_origins).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Internal-Key"],
 )
 
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
@@ -59,10 +78,3 @@ app.include_router(agent_router, prefix="/agent", tags=["Agent"])
 async def health_check():
     """Health check endpoint for Docker/monitoring."""
     return {"status": "healthy", "service": "ai-calling-backend"}
-
-
-#  Create tables on startup
-@app.on_event("startup")
-async def create_tables():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
