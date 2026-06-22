@@ -1,27 +1,20 @@
 """
 ARQ background worker.
 
-TECH DEBT (#27): This worker currently only has a stub `sample_task`.
-The campaign execution engine (app/services/campaign_executor.py) runs
-campaigns as in-process asyncio tasks instead of using this queue.
+Fix #5 / #27: Implements `process_campaign_task` which is enqueued by
+`start_campaign_execution` in campaign_executor.py.  The worker picks it up
+from Redis, calls the core `_process_campaign` loop, and gracefully honours
+pause/stop flags written to Redis by `pause_campaign_execution` /
+`stop_campaign_execution`.
 
-Migration path to move campaigns here:
-  1. Add a `process_campaign_task(ctx, campaign_id: str, business_id: str)` function
-     that calls `_process_campaign(UUID(campaign_id), UUID(business_id))`.
-  2. In `start_campaign_execution`, enqueue via:
-       pool = await arq.create_pool(RedisSettings(...))
-       await pool.enqueue_job("process_campaign_task", str(campaign_id), str(business_id))
-  3. For pause/stop: set a Redis flag keyed by campaign_id; the worker polls it
-     at the start of each contact loop iteration.
-  4. Remove `_running_campaigns` and asyncio.create_task usage from the executor.
-
-This enables:
-  - Crash recovery (ARQ persists job state in Redis)
-  - Horizontal scaling (multiple worker replicas dequeue from one Redis list)
-  - Visibility (ARQ dashboard, job status, retries)
+Run the worker with:
+    arq app.worker.WorkerSettings
 """
 import logging
+from uuid import UUID
+
 from arq.connections import RedisSettings
+
 from app.core.config import settings
 
 logging.basicConfig(level=logging.INFO)
@@ -48,14 +41,27 @@ async def shutdown(ctx: dict) -> None:
     logger.info("Worker shutting down...")
 
 
-async def sample_task(ctx: dict, message: str) -> bool:
-    """Placeholder task — replace with real campaign processing (see module docstring)."""
-    logger.info(f"Executing sample task with message: {message}")
-    return True
+async def process_campaign_task(ctx: dict, campaign_id: str, business_id: str) -> None:
+    """
+    ARQ task: run the campaign processing loop for one campaign.
+
+    `ctx` is provided by ARQ and contains (among other things) `ctx['redis']`,
+    which `_process_campaign` uses to poll the pause/stop control flag.
+
+    Args:
+        ctx:         ARQ worker context (injected automatically).
+        campaign_id: String UUID of the campaign to process.
+        business_id: String UUID of the owning business.
+    """
+    from app.services.campaign_executor import _process_campaign  # local import avoids circularity
+
+    logger.info(f"Worker picked up campaign {campaign_id}")
+    await _process_campaign(ctx, UUID(campaign_id), UUID(business_id))
+    logger.info(f"Worker finished campaign {campaign_id}")
 
 
 class WorkerSettings:
-    functions = [sample_task]
+    functions = [process_campaign_task]
     redis_settings = parse_redis_url(settings.REDIS_URL)
     on_startup = startup
     on_shutdown = shutdown

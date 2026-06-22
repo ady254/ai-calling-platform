@@ -1,29 +1,29 @@
 """
 Campaign execution engine.
 
-Processes campaign contacts sequentially using asyncio background tasks.
+Processes campaign contacts sequentially via an ARQ Redis-backed worker task.
 Each contact gets: Twilio outbound call → LiveKit room → AI agent conversation.
 
-TECH DEBT (#5 / #27): This engine uses a process-local in-memory dict
-(`_running_campaigns`) to track running asyncio.Tasks. This means:
-  - Restarting the process loses all running state. Contacts stuck in
-    CALLING status must be recovered manually (see `recover_orphaned_contacts`).
-  - Multiple worker replicas cannot share state — pause/stop hits only one.
-  - The included ARQ worker (app/worker.py) is the intended replacement for
-    this approach. Migration path:
-      1. Create an ARQ task `process_campaign_task(campaign_id, business_id)`
-      2. Enqueue it via `arq.create_pool(RedisSettings(...))` on start
-      3. Pause/stop: set a Redis flag keyed by campaign_id; the worker polls it
-      4. Remove _running_campaigns and this module's asyncio.create_task usage
+Fix #5 / #27: Replaced the process-local `_running_campaigns` dict and
+`asyncio.create_task` approach with an ARQ job queue.
+
+  - `start_campaign_execution` → enqueues `process_campaign_task` into Redis.
+  - `pause_campaign_execution` / `stop_campaign_execution` → write a Redis
+    status flag (`campaign:status:{campaign_id}`) that the worker polls.
+  - `_process_campaign` → polls the flag on every contact iteration so it
+    halts gracefully across process restarts and multiple worker replicas.
 """
 import asyncio
 import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
+import arq
+from arq.connections import RedisSettings
 from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.models.campaign import Campaign, CampaignStatus
 from app.models.campaign_contact import CampaignContact, CampaignContactStatus
@@ -33,9 +33,25 @@ from app.services.twilio_service import make_outbound_call
 
 logger = logging.getLogger(__name__)
 
-# Track running campaign tasks so we can cancel them.
-# NOTE: This is process-local. See TECH DEBT note above.
-_running_campaigns: dict[str, asyncio.Task] = {}
+# Redis key prefix used to signal pause/stop to the ARQ worker.
+_CAMPAIGN_STATUS_KEY = "campaign:status:{campaign_id}"
+
+
+def _parse_redis_settings() -> RedisSettings:
+    """Parse REDIS_URL from settings into an ARQ RedisSettings object."""
+    import urllib.parse
+    parsed = urllib.parse.urlparse(settings.REDIS_URL)
+    return RedisSettings(
+        host=parsed.hostname or "localhost",
+        port=parsed.port or 6379,
+        password=parsed.password,
+        database=int(parsed.path.lstrip("/")) if parsed.path.lstrip("/") else 0,
+    )
+
+
+async def _get_redis_pool() -> arq.ArqRedis:
+    """Open a short-lived ARQ Redis pool for enqueueing / flag writing."""
+    return await arq.create_pool(_parse_redis_settings())
 
 
 async def recover_orphaned_contacts() -> None:
@@ -61,29 +77,39 @@ async def recover_orphaned_contacts() -> None:
 
 async def start_campaign_execution(campaign_id: UUID, business_id: UUID) -> dict:
     """
-    Launch a background task that processes all pending contacts in a campaign.
-    Calls are made sequentially with a configurable delay between each.
+    Enqueue a campaign processing job into the ARQ Redis worker queue.
+    The actual processing happens inside `process_campaign_task` in worker.py.
     """
-    campaign_key = str(campaign_id)
+    redis = await _get_redis_pool()
+    try:
+        # Clear any stale pause/stop flag from a previous run.
+        status_key = _CAMPAIGN_STATUS_KEY.format(campaign_id=str(campaign_id))
+        await redis.delete(status_key)
 
-    if campaign_key in _running_campaigns and not _running_campaigns[campaign_key].done():
-        logger.warning(f"Campaign {campaign_key} is already running")
-        return {"status": "already_running"}
+        await redis.enqueue_job(
+            "process_campaign_task",
+            str(campaign_id),
+            str(business_id),
+        )
+        logger.info(f"Campaign {campaign_id} enqueued into ARQ worker")
+    finally:
+        await redis.aclose()
 
-    task = asyncio.create_task(_process_campaign(campaign_id, business_id))
-    _running_campaigns[campaign_key] = task
-
-    logger.info(f"Campaign {campaign_key} execution started")
     return {"status": "started"}
 
 
 async def pause_campaign_execution(campaign_id: UUID) -> dict:
-    """Cancel the running background task and set status to PAUSED."""
-    campaign_key = str(campaign_id)
-
-    if campaign_key in _running_campaigns and not _running_campaigns[campaign_key].done():
-        _running_campaigns[campaign_key].cancel()
-        del _running_campaigns[campaign_key]
+    """
+    Signal the ARQ worker to pause by setting a Redis flag to 'PAUSED'.
+    Also updates the Campaign DB status immediately so the UI reflects the change.
+    The worker polls this flag and halts gracefully after the current contact.
+    """
+    status_key = _CAMPAIGN_STATUS_KEY.format(campaign_id=str(campaign_id))
+    redis = await _get_redis_pool()
+    try:
+        await redis.set(status_key, "PAUSED")
+    finally:
+        await redis.aclose()
 
     async with AsyncSessionLocal() as db:
         await db.execute(
@@ -93,17 +119,22 @@ async def pause_campaign_execution(campaign_id: UUID) -> dict:
         )
         await db.commit()
 
-    logger.info(f"Campaign {campaign_key} paused")
+    logger.info(f"Campaign {campaign_id} paused via Redis flag")
     return {"status": "paused"}
 
 
 async def stop_campaign_execution(campaign_id: UUID) -> dict:
-    """Cancel the running background task and set status to CANCELLED."""
-    campaign_key = str(campaign_id)
-
-    if campaign_key in _running_campaigns and not _running_campaigns[campaign_key].done():
-        _running_campaigns[campaign_key].cancel()
-        del _running_campaigns[campaign_key]
+    """
+    Signal the ARQ worker to cancel by setting a Redis flag to 'CANCELLED'.
+    Also updates the Campaign DB status immediately so the UI reflects the change.
+    The worker polls this flag and halts gracefully after the current contact.
+    """
+    status_key = _CAMPAIGN_STATUS_KEY.format(campaign_id=str(campaign_id))
+    redis = await _get_redis_pool()
+    try:
+        await redis.set(status_key, "CANCELLED")
+    finally:
+        await redis.aclose()
 
     async with AsyncSessionLocal() as db:
         await db.execute(
@@ -113,7 +144,7 @@ async def stop_campaign_execution(campaign_id: UUID) -> dict:
         )
         await db.commit()
 
-    logger.info(f"Campaign {campaign_key} stopped/cancelled")
+    logger.info(f"Campaign {campaign_id} stopped/cancelled via Redis flag")
     return {"status": "cancelled"}
 
 
@@ -144,10 +175,8 @@ async def get_campaign_progress(db: AsyncSession, campaign_id: UUID) -> dict | N
     calling = status_counts.get("calling", 0)
     pending = status_counts.get("pending", 0)
 
-    is_running = (
-        str(campaign_id) in _running_campaigns
-        and not _running_campaigns[str(campaign_id)].done()
-    )
+    # Derive is_running from the DB campaign status (set by the ARQ worker).
+    is_running = campaign.status == CampaignStatus.ACTIVE
 
     return {
         "campaign_id": str(campaign_id),
@@ -163,13 +192,23 @@ async def get_campaign_progress(db: AsyncSession, campaign_id: UUID) -> dict | N
     }
 
 
-# ── Internal: campaign processing loop ──
+# ── Internal: campaign processing loop (called by ARQ worker) ──
 
-async def _process_campaign(campaign_id: UUID, business_id: UUID) -> None:
+async def _process_campaign(ctx: dict, campaign_id: UUID, business_id: UUID) -> None:
     """
     Core campaign loop. Iterates through pending contacts and calls each one.
-    Runs as an asyncio background task.
+    Runs as an ARQ background task inside worker.py.
+
+    Pause / stop is coordinated via a Redis flag
+    (`campaign:status:{campaign_id}`) that is set by
+    `pause_campaign_execution` / `stop_campaign_execution`.
     """
+    campaign_key = str(campaign_id)
+    status_key = _CAMPAIGN_STATUS_KEY.format(campaign_id=campaign_key)
+
+    # The ARQ worker passes its Redis connection via ctx["redis"].
+    redis = ctx.get("redis")
+
     logger.info(f"Processing campaign {campaign_id}")
 
     try:
@@ -182,10 +221,21 @@ async def _process_campaign(campaign_id: UUID, business_id: UUID) -> None:
             await db.commit()
 
         while True:
-            if asyncio.current_task().cancelled():
-                logger.info(f"Campaign {campaign_id} was cancelled")
-                return
+            # ── Poll the Redis control flag ──
+            if redis:
+                flag = await redis.get(status_key)
+                if flag is not None:
+                    flag_str = flag.decode() if isinstance(flag, bytes) else flag
+                    if flag_str == "PAUSED":
+                        logger.info(f"Campaign {campaign_id} paused by Redis flag")
+                        # DB status already updated by pause_campaign_execution.
+                        return
+                    if flag_str == "CANCELLED":
+                        logger.info(f"Campaign {campaign_id} cancelled by Redis flag")
+                        # DB status already updated by stop_campaign_execution.
+                        return
 
+            # ── Fetch next pending contact ──
             async with AsyncSessionLocal() as db:
                 stmt = (
                     select(CampaignContact)
@@ -224,9 +274,6 @@ async def _process_campaign(campaign_id: UUID, business_id: UUID) -> None:
 
         logger.info(f"Campaign {campaign_id} completed successfully")
 
-    except asyncio.CancelledError:
-        logger.info(f"Campaign {campaign_id} task was cancelled")
-        raise
     except Exception as e:
         logger.error(f"Campaign {campaign_id} failed: {e}", exc_info=True)
         async with AsyncSessionLocal() as db:
@@ -236,8 +283,6 @@ async def _process_campaign(campaign_id: UUID, business_id: UUID) -> None:
                 .values(status=CampaignStatus.PAUSED)
             )
             await db.commit()
-    finally:
-        _running_campaigns.pop(str(campaign_id), None)
 
 
 async def _call_single_contact(

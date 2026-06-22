@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -36,11 +36,13 @@ async def create_contact_route(
 
 @router.get("/", response_model=list[ContactOut])
 async def list_contacts_route(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user)
 ):
     business = await get_user_business(db, user_id)
-    return await get_contacts_by_business(db, business.id)
+    return await get_contacts_by_business(db, business.id, skip, limit)
 
 
 @router.get("/{contact_id}", response_model=ContactOut)

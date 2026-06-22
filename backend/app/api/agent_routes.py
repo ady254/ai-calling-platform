@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -48,11 +48,13 @@ async def create_agent_route(
 
 @router.get("/", response_model=List[AgentOut])
 async def list_agents_route(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user)
 ):
     business = await get_user_business(db, user_id)
-    return await get_agents_by_business(db, business.id)
+    return await get_agents_by_business(db, business.id, skip, limit)
 
 @router.get("/{agent_id}", response_model=AgentOut)
 async def get_agent_route(

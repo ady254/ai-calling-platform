@@ -31,7 +31,12 @@ async def create_campaign(db: AsyncSession, data: CampaignCreate):
     await db.refresh(campaign)
     return campaign
 
-async def get_campaigns_by_business(db: AsyncSession, business_id: UUID):
+async def get_campaigns_by_business(
+    db: AsyncSession,
+    business_id: UUID,
+    skip: int = 0,
+    limit: int = 50,
+):
     # Get campaigns with contact count
     stmt = select(
         Campaign,
@@ -40,7 +45,7 @@ async def get_campaigns_by_business(db: AsyncSession, business_id: UUID):
         CampaignContact, Campaign.id == CampaignContact.campaign_id
     ).filter(
         Campaign.business_id == business_id
-    ).group_by(Campaign.id).order_by(Campaign.created_at.desc())
+    ).group_by(Campaign.id).order_by(Campaign.created_at.desc()).offset(skip).limit(limit)
 
     result = await db.execute(stmt)
     rows = result.all()
@@ -50,7 +55,7 @@ async def get_campaigns_by_business(db: AsyncSession, business_id: UUID):
         campaign_dict = campaign.__dict__.copy()
         campaign_dict['contact_count'] = contact_count
         campaigns.append(campaign_dict)
-    
+
     return campaigns
 
 async def get_campaign(db: AsyncSession, campaign_id: UUID):

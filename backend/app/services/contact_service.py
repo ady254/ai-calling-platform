@@ -39,11 +39,18 @@ async def create_contact(
     return contact
 
 
-async def get_contacts_by_business(db: AsyncSession, business_id: UUID) -> list[Contact]:
+async def get_contacts_by_business(
+    db: AsyncSession,
+    business_id: UUID,
+    skip: int = 0,
+    limit: int = 50,
+) -> list[Contact]:
     stmt = (
         select(Contact)
         .filter(Contact.business_id == business_id)
         .order_by(Contact.created_at.desc())
+        .offset(skip)
+        .limit(limit)
     )
     result = await db.execute(stmt)
     return result.scalars().all()

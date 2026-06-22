@@ -15,8 +15,16 @@ async def create_agent(db: AsyncSession, data: AgentCreate) -> Agent:
     return agent
 
 
-async def get_agents_by_business(db: AsyncSession, business_id: UUID) -> List[Agent]:
-    stmt = select(Agent).filter(Agent.business_id == business_id).order_by(Agent.created_at.desc())
+async def get_agents_by_business(
+    db: AsyncSession, business_id: UUID, skip: int = 0, limit: int = 50
+) -> List[Agent]:
+    stmt = (
+        select(Agent)
+        .filter(Agent.business_id == business_id)
+        .order_by(Agent.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
     result = await db.execute(stmt)
     return result.scalars().all()
 

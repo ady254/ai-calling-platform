@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
@@ -27,11 +27,13 @@ async def create_campaign_route(
 
 @router.get("/", response_model=list[CampaignOut])
 async def list_campaigns_route(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user)
 ):
     business = await get_user_business(db, user_id)
-    return await get_campaigns_by_business(db, business.id)
+    return await get_campaigns_by_business(db, business.id, skip, limit)
 
 @router.get("/{campaign_id}", response_model=CampaignOut)
 async def get_campaign_route(
