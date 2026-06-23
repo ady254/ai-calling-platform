@@ -336,6 +336,8 @@ async def create_call_log(
 
 @router.get("/logs", response_model=List[CallLogOut])
 async def get_call_logs(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user)
 ):
@@ -344,7 +346,8 @@ async def get_call_logs(
         select(CallLog)
         .filter(CallLog.business_id == business.id)
         .order_by(CallLog.created_at.desc())
-        .limit(200)  # Safety cap — TODO: add proper pagination (offset/cursor)
+        .offset(skip)
+        .limit(limit)
     )
     result = await db.execute(stmt)
     return result.scalars().all()
