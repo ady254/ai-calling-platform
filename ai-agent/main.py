@@ -22,13 +22,15 @@ class MyAgent(Agent):
         self.transcript: list[str] = []
 
 
-async def fetch_campaign(campaign_id: str) -> dict | None:
+async def fetch_campaign(campaign_id: str, contact_id: str | None = None) -> dict | None:
     try:
         headers = {"X-Internal-Key": INTERNAL_API_KEY}
+        params = {"contact_id": contact_id} if contact_id else {}
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 f"{BACKEND_URL}/agent/internal/campaign/{campaign_id}",
-                headers=headers
+                headers=headers,
+                params=params,
             ) as resp:
                 if resp.status == 200:
                     return await resp.json()
@@ -109,8 +111,11 @@ async def entrypoint(ctx: JobContext):
 
     if campaign_id:
         logger.info(f"Fetching campaign config for: {campaign_id}")
-        campaign = await fetch_campaign(campaign_id)
+        campaign = await fetch_campaign(campaign_id, contact_id)
         if campaign:
+            # ai_prompt already has {{variables}} rendered server-side
+            # (see /agent/internal/campaign in the backend) using this
+            # contact's custom_fields (e.g. doctor_name, appointment_date).
             instructions = campaign.get("ai_prompt", instructions)
             if campaign.get("ai_voice"):
                 voice_id = campaign.get("ai_voice")
@@ -118,7 +123,11 @@ async def entrypoint(ctx: JobContext):
             stability = campaign.get("stability", stability)
             similarity_boost = campaign.get("similarity_boost", similarity_boost)
 
-            greeting = f"Hi, I am calling about {campaign.get('name')}."
+            contact_name = (campaign.get("variables") or {}).get("name")
+            if contact_name:
+                greeting = f"Hi {contact_name}, I am calling about {campaign.get('campaign_name')}."
+            else:
+                greeting = f"Hi, I am calling about {campaign.get('campaign_name')}."
 
     my_agent = MyAgent(instructions=instructions)
 

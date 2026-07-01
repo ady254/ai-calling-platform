@@ -1,5 +1,5 @@
 from sqlalchemy import Column, String, ForeignKey, DateTime, Text, Enum as SAEnum
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 import uuid
 import enum
@@ -32,6 +32,13 @@ class Contact(Base):
     company = Column(String(255), nullable=True)
     tags = Column(String(500), nullable=True)  # Comma-separated tags
     notes = Column(Text, nullable=True)
+
+    # Per-contact variables used to personalize campaign scripts, e.g.
+    # {"doctor_name": "Dr. Khalid", "appointment_date": "2026-07-05",
+    #  "department": "Cardiology", "preferred_language": "ar-AE"}.
+    # Rendered into Campaign.ai_prompt via {{variable}} placeholders — see
+    # app/utils/templating.py and the /agent/internal/campaign endpoint.
+    custom_fields = Column(JSONB, nullable=False, server_default="{}")
 
     status = Column(
         SAEnum(ContactStatus, values_callable=lambda e: [x.value for x in e]),

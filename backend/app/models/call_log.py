@@ -21,6 +21,10 @@ class CallLog(Base):
     transcript = Column(String, nullable=True)
     duration = Column(Integer, default=0)
 
+    # Twilio's CallSid — lets the async status-callback webhook find and
+    # update the right row once the call actually finishes.
+    call_sid = Column(String(64), nullable=True, index=True)
+
     # Timestamps
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(

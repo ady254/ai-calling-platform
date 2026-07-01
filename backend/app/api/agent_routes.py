@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
-from typing import List
+from typing import List, Optional
 import io
+import secrets
 # Fix #22: Replace silent `except ImportError: pass` with a proper sentinel.
 # If elevenlabs is not installed, ElevenLabs is None and the /preview endpoint
 # returns a clean 503 instead of crashing with a NameError at call time.
@@ -27,11 +28,14 @@ from app.models.business import Business
 from app.models.campaign import Campaign
 from app.models.agent import Agent
 from app.models.call_log import CallLog
+from app.models.contact import Contact
 from app.schemas.call_schema import CallLogCreate
 from app.dependencies.database import get_db
 from app.dependencies.auth import get_current_user
 from app.dependencies.business import get_user_business
 from app.core.config import settings
+from app.utils.templating import render_template
+from app.core.rate_limit import limiter
 from fastapi import Header
 
 router = APIRouter()
@@ -103,7 +107,9 @@ async def delete_agent_route(
     return {"success": success}
 
 @router.post("/preview")
+@limiter.limit("10/minute")
 async def preview_agent_voice(
+    request: Request,
     data: dict,
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user)
@@ -139,29 +145,43 @@ async def preview_agent_voice(
 
 # --- Internal Routes (for AI Agent Worker) ---
 
-# Fix #4: Require the header to be present and check its length
+# Fix #4: Require the header to be present and check its length.
+# Uses secrets.compare_digest instead of `!=` so the comparison takes
+# constant time regardless of where the strings first differ, closing a
+# timing side-channel an attacker could otherwise use to guess the key
+# byte-by-byte.
 async def verify_internal_key(x_internal_key: str = Header(...)):
-    if not x_internal_key or x_internal_key != settings.INTERNAL_API_KEY or len(x_internal_key) < 32:
+    if (
+        not x_internal_key
+        or len(x_internal_key) < 32
+        or not secrets.compare_digest(x_internal_key, settings.INTERNAL_API_KEY)
+    ):
         raise HTTPException(status_code=403, detail="Invalid internal API key")
 
 @router.get("/internal/campaign/{campaign_id}", tags=["Internal"])
 async def get_campaign_config_internal(
     campaign_id: UUID,
+    contact_id: Optional[UUID] = None,
     db: AsyncSession = Depends(get_db),
     _ = Depends(verify_internal_key)
 ):
     """
-    Returns the full configuration for an AI call, 
+    Returns the full configuration for an AI call,
     merging Campaign and Agent Persona settings.
+
+    If contact_id is supplied, the contact's name/phone/custom_fields are
+    rendered into {{variable}} placeholders in ai_prompt so every call is
+    personalized (e.g. "Hi {{name}}, this is a reminder about your
+    appointment with {{doctor_name}} on {{appointment_date}}.").
     """
     # Fetch campaign
     stmt = select(Campaign).filter(Campaign.id == campaign_id)
     result = await db.execute(stmt)
     campaign = result.scalar_one_or_none()
-    
+
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
-        
+
     config = {
         "campaign_name": campaign.name,
         "ai_prompt": campaign.ai_prompt,
@@ -169,7 +189,7 @@ async def get_campaign_config_internal(
         "language": campaign.language,
         "max_retries": campaign.max_retries,
     }
-    
+
     # If there's a linked agent, override with agent settings
     if campaign.agent_id:
         agent = await get_agent(db, campaign.agent_id)
@@ -179,7 +199,25 @@ async def get_campaign_config_internal(
             config["language"] = agent.language
             config["stability"] = agent.stability
             config["similarity_boost"] = agent.similarity_boost
-            
+
+    variables: dict = {}
+    if contact_id:
+        contact = (await db.execute(
+            select(Contact).filter(
+                Contact.id == contact_id, Contact.business_id == campaign.business_id
+            )
+        )).scalar_one_or_none()
+        if contact:
+            variables = {
+                "name": contact.name,
+                "phone_number": contact.phone_number,
+                "email": contact.email,
+                "company": contact.company,
+                **(contact.custom_fields or {}),
+            }
+            config["ai_prompt"] = render_template(config["ai_prompt"], variables)
+
+    config["variables"] = variables
     return config
 
 @router.post("/internal/call_log", tags=["Internal"])

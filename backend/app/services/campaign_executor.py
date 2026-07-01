@@ -27,7 +27,7 @@ from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.models.campaign import Campaign, CampaignStatus
 from app.models.campaign_contact import CampaignContact, CampaignContactStatus
-from app.models.contact import Contact
+from app.models.contact import Contact, ContactStatus
 from app.models.call_log import CallLog
 from app.services.twilio_service import make_outbound_call
 
@@ -299,6 +299,13 @@ async def _call_single_contact(
             await _update_contact_status(campaign_id, contact_id, CampaignContactStatus.SKIPPED)
             return
 
+        # Compliance: never dial a contact who has been marked do-not-call,
+        # even if they were added to a campaign before that status was set.
+        if contact.status == ContactStatus.DO_NOT_CALL:
+            logger.warning(f"Skipping contact {contact_id}: marked as do-not-call")
+            await _update_contact_status(campaign_id, contact_id, CampaignContactStatus.SKIPPED)
+            return
+
         try:
             # Fix #8: Twilio SDK uses the synchronous `requests` library under
             # the hood. Running it directly blocks the asyncio event loop for
@@ -317,6 +324,7 @@ async def _call_single_contact(
                     campaign_id=campaign_id,
                     business_id=business_id,
                     status="started",
+                    call_sid=call_result.get("sid"),
                 )
                 db.add(call_log)
                 await db.commit()

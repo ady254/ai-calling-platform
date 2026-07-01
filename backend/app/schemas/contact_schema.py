@@ -12,6 +12,9 @@ class ContactCreate(BaseModel):
     company: Optional[str] = None
     tags: Optional[str] = None
     notes: Optional[str] = None
+    # Free-form per-contact variables (e.g. doctor_name, appointment_date,
+    # department, preferred_language) used to personalize campaign scripts.
+    custom_fields: Optional[dict] = None
 
 
 class ContactUpdate(BaseModel):
@@ -22,6 +25,7 @@ class ContactUpdate(BaseModel):
     tags: Optional[str] = None
     notes: Optional[str] = None
     status: Optional[str] = None
+    custom_fields: Optional[dict] = None
 
 
 class ContactOut(BaseModel):
@@ -34,6 +38,7 @@ class ContactOut(BaseModel):
     tags: Optional[str] = None
     notes: Optional[str] = None
     status: str
+    custom_fields: dict = {}
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

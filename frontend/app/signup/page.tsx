@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { User, Mail, Lock, ArrowRight, Activity } from "lucide-react";
+import { authService } from "@/services/auth-service";
 
 export default function SignupPage() {
   const [name, setName] = useState('');
@@ -16,29 +17,11 @@ export default function SignupPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await fetch("http://localhost:8000/auth/signup", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name,
-          email,
-          password,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        alert("Registration successful! Please login.");
-        router.push("/login");
-      } else {
-        alert(data.detail || "Registration failed");
-      }
-    } catch (err) {
-      console.error(err);
-      alert("Server error");
+      await authService.signup({ name, email, password });
+      alert("Registration successful! Please login.");
+      router.push("/login");
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Registration failed");
     } finally {
       setLoading(false);
     }

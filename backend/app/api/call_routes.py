@@ -4,9 +4,9 @@ from typing import List, Optional
 from uuid import UUID
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, text
+from sqlalchemy import select, func, text, update
 from twilio.request_validator import RequestValidator
 from twilio.twiml.voice_response import VoiceResponse
 
@@ -192,7 +192,7 @@ async def twilio_twiml(
 
 
 @router.post("/twilio/status-callback")
-async def twilio_status_callback(request: Request):
+async def twilio_status_callback(request: Request, db: AsyncSession = Depends(get_db)):
     """
     Receives call status updates from Twilio.
     Twilio sends: CallSid, CallStatus, CallDuration, To, From, etc.
@@ -222,10 +222,26 @@ async def twilio_status_callback(request: Request):
             "canceled": "failed",
         }
 
-        if call_status in status_map:
+        if call_status in status_map and call_sid:
             internal_status = status_map[call_status]
-            logger.info(f"Call {call_sid} final status: {call_status} → {internal_status}")
-            # TODO: Update the existing call log row using the CallSid as lookup key.
+
+            try:
+                duration_seconds = int(call_duration) if call_duration else 0
+            except ValueError:
+                duration_seconds = 0
+
+            result = await db.execute(
+                update(CallLog)
+                .where(CallLog.call_sid == call_sid)
+                .values(status=internal_status, duration=duration_seconds)
+                .returning(CallLog.id)
+            )
+            await db.commit()
+
+            if result.first():
+                logger.info(f"Call {call_sid} final status: {call_status} → {internal_status}")
+            else:
+                logger.warning(f"Status callback for unknown CallSid {call_sid} — no CallLog row updated")
 
         return {"status": "ok"}
 

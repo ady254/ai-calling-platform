@@ -1,30 +1,73 @@
+import json
 import logging
-from fastapi import APIRouter, Depends
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.livekit_service import create_room_token
 from app.dependencies.auth import get_current_user
+from app.dependencies.business import get_user_business
+from app.dependencies.database import get_db
 from app.core.config import settings
+from app.core.rate_limit import limiter
+from app.models.campaign import Campaign
+from app.models.contact import Contact
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-
-import json
-from typing import Optional
 
 class RoomRequest(BaseModel):
     room_name: str = "test-room"
 
 
 @router.get("/token")
+@limiter.limit("20/minute")
 async def get_token(
+    request: Request,
     room_name: str,
     campaign_id: Optional[str] = None,
     contact_id: Optional[str] = None,
-    user_id: str = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
 ):
-    """Generate a LiveKit room token for the authenticated user."""
+    """
+    Generate a LiveKit room token for the authenticated user.
+
+    SECURITY: room_name is caller-supplied, and campaign_id/contact_id are
+    used only to build participant metadata — none of that was previously
+    checked against the caller's own tenant. That meant any authenticated
+    user could mint a token for *any* room_name (including one belonging to
+    another business's live call) and join it to listen in or speak.
+    Two fixes:
+      1. If campaign_id/contact_id are supplied, verify they belong to the
+         caller's business before embedding them in the token metadata.
+      2. Namespace the actual LiveKit room by business_id server-side, so a
+         user can never join a room outside their own tenant's namespace
+         regardless of what room_name string they pass.
+    """
+    business = await get_user_business(db, user_id)
+
+    if campaign_id:
+        campaign = (await db.execute(
+            select(Campaign).filter(
+                Campaign.id == campaign_id, Campaign.business_id == business.id
+            )
+        )).scalar_one_or_none()
+        if not campaign:
+            raise HTTPException(status_code=403, detail="Campaign not found or not authorized")
+
+    if contact_id:
+        contact = (await db.execute(
+            select(Contact).filter(
+                Contact.id == contact_id, Contact.business_id == business.id
+            )
+        )).scalar_one_or_none()
+        if not contact:
+            raise HTTPException(status_code=403, detail="Contact not found or not authorized")
 
     metadata = {}
     if campaign_id:
@@ -32,16 +75,21 @@ async def get_token(
     if contact_id:
         metadata["contact_id"] = contact_id
 
+    # Namespace the room per-business so callers can never collide with (or
+    # deliberately target) another tenant's room, no matter what room_name
+    # string is supplied.
+    scoped_room_name = f"biz-{business.id}-{room_name}"
+
     token = create_room_token(
         identity=user_id,
-        room_name=room_name,
+        room_name=scoped_room_name,
         metadata=json.dumps(metadata) if metadata else ""
     )
 
-    logger.info(f"Generated LiveKit token for user {user_id}, room {room_name}")
+    logger.info(f"Generated LiveKit token for user {user_id}, room {scoped_room_name}")
 
     return {
         "token": token,
-        "room": room_name,
+        "room": scoped_room_name,
         "livekit_url": settings.LIVEKIT_URL,
     }

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -16,6 +16,7 @@ from app.models.campaign_contact import CampaignContact
 from app.dependencies.database import get_db
 from app.dependencies.auth import get_current_user
 from app.dependencies.business import get_user_business
+from app.core.rate_limit import limiter
 
 router = APIRouter()
 
@@ -95,7 +96,9 @@ async def delete_contact_route(
 
 
 @router.post("/import")
+@limiter.limit("10/minute")
 async def import_contacts_csv(
+    request: Request,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user)
@@ -114,6 +117,11 @@ async def import_contacts_csv(
             detail=f"File too large. Maximum allowed size is {MAX_CSV_BYTES // (1024 * 1024)} MB.",
         )
 
+    # Columns consumed directly by the Contact model — anything else in the
+    # CSV (e.g. doctor_name, appointment_date, department, mrn) is preserved
+    # as a per-contact variable in custom_fields for campaign personalization.
+    KNOWN_COLUMNS = {"name", "phone_number", "email", "company", "tags"}
+
     try:
         csv_data = contents.decode("utf-8")
         reader = csv.DictReader(io.StringIO(csv_data))
@@ -123,6 +131,11 @@ async def import_contacts_csv(
             name = row.get("name", "").strip()
             phone = row.get("phone_number", "").strip()
             if name and phone:
+                custom_fields = {
+                    key.strip(): value.strip()
+                    for key, value in row.items()
+                    if key and key.strip().lower() not in KNOWN_COLUMNS and value and value.strip()
+                }
                 contacts_to_add.append(
                     ContactCreate(
                         business_id=business.id,
@@ -131,6 +144,7 @@ async def import_contacts_csv(
                         email=row.get("email", "").strip() or None,
                         company=row.get("company", "").strip() or None,
                         tags=row.get("tags", "").strip() or None,
+                        custom_fields=custom_fields or None,
                     )
                 )
 

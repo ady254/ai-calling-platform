@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Mail, Lock, ArrowRight, ShieldCheck } from "lucide-react";
+import { authService } from "@/services/auth-service";
 
 export default function LoginPage() {
     const [email, setEmail] = useState("");
@@ -15,29 +16,10 @@ export default function LoginPage() {
         e.preventDefault();
         setLoading(true);
         try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-            const res = await fetch(`${apiUrl}/auth/login`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    email,
-                    password,
-                }),
-            });
-
-            const data = await res.json();
-
-            if (res.ok) {
-                localStorage.setItem("token", data.access_token);
-                router.push("/dashboard");
-            } else {
-                alert(data.error || data.detail || "Login failed");
-            }
-        } catch (err) {
-            console.error(err);
-            alert("Server error");
+            await authService.login({ email, password });
+            router.push("/dashboard");
+        } catch (err: any) {
+            alert(err.response?.data?.detail || "Login failed");
         } finally {
             setLoading(false);
         }
