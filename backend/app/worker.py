@@ -16,6 +16,13 @@ from uuid import UUID
 from arq.connections import RedisSettings
 
 from app.core.config import settings
+# Import every model so SQLAlchemy's declarative registry is fully populated
+# before any mapper is used. Without this, this standalone process (unlike
+# app.main, which transitively imports every model via its routers) only
+# pulls in Campaign/Contact/CampaignContact/CallLog through
+# campaign_executor.py, and crashes the first job with "expression
+# 'Business' failed to locate a name" since Business is never imported here.
+import app.models  # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("worker")

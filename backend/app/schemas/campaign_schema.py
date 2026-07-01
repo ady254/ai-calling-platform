@@ -3,6 +3,8 @@ from uuid import UUID
 from typing import Optional
 from datetime import datetime
 
+from app.models.campaign import CampaignStatus
+
 
 class CampaignCreate(BaseModel):
     business_id: Optional[UUID] = None
@@ -22,7 +24,10 @@ class CampaignUpdate(BaseModel):
     description: Optional[str] = None
     objective: Optional[str] = None
     language: Optional[str] = None
-    status: Optional[str] = None
+    # Typed against the enum so an invalid value is rejected here with a
+    # clean 422 instead of reaching the DB and failing with an unhandled
+    # asyncpg.InvalidTextRepresentationError -> 500.
+    status: Optional[CampaignStatus] = None
     ai_prompt: Optional[str] = None
     ai_voice: Optional[str] = None
     max_retries: Optional[int] = None

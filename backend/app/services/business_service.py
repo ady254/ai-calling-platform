@@ -3,6 +3,17 @@ from sqlalchemy import select
 from fastapi import HTTPException
 
 from app.models.business import Business
+from app.schemas.business_schema import BusinessUpdate
+
+
+async def update_business(db: AsyncSession, business: Business, data: BusinessUpdate) -> Business:
+    update_data = data.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(business, key, value)
+
+    await db.commit()
+    await db.refresh(business)
+    return business
 
 
 async def create_business(db: AsyncSession, user_id, data):

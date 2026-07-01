@@ -3,6 +3,7 @@ from sqlalchemy import select
 from fastapi import HTTPException
 
 from app.models.user import User
+from app.models.business import Business
 from app.utils.security import hash_password, verify_password
 from app.core.security import create_access_token
 
@@ -22,8 +23,20 @@ async def create_user(db: AsyncSession, name: str, email: str, password: str) ->
         email=email,
         password_hash=hash_password(password),
     )
-
     db.add(user)
+    await db.flush()
+
+    # Every business-scoped route (campaigns, contacts, agents, calls,
+    # analytics, livekit tokens...) resolves the caller's Business via
+    # get_user_business() and 404s if none exists. There is no separate
+    # "create your business" step anywhere in the frontend, so without this
+    # a brand-new signup would be permanently stuck: every dashboard request
+    # returns 404 "Business not found for user" forever. Auto-create one
+    # here so signup leaves the account immediately usable; the user can
+    # rename it later.
+    business = Business(user_id=user.id, name=f"{name}'s Business", industry=None, default_language="en")
+    db.add(business)
+
     await db.commit()
     await db.refresh(user)
     return user

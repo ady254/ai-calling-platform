@@ -3,6 +3,8 @@ from uuid import UUID
 from typing import Optional
 from datetime import datetime
 
+from app.models.contact import ContactStatus
+
 
 class ContactCreate(BaseModel):
     business_id: Optional[UUID] = None
@@ -24,7 +26,10 @@ class ContactUpdate(BaseModel):
     company: Optional[str] = None
     tags: Optional[str] = None
     notes: Optional[str] = None
-    status: Optional[str] = None
+    # Typed against the enum so an invalid value is rejected here with a
+    # clean 422 instead of reaching the DB and failing with an unhandled
+    # asyncpg.InvalidTextRepresentationError -> 500.
+    status: Optional[ContactStatus] = None
     custom_fields: Optional[dict] = None
 
 

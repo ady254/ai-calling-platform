@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.schemas.user_schema import UserCreate, UserLogin
+from app.schemas.user_schema import UserCreate, UserLogin, UserOut
 from app.dependencies.database import get_db
 from app.services.auth_service import create_user, login_user
 from app.dependencies.auth import get_current_user
@@ -38,11 +38,11 @@ async def token_login(
     return {"access_token": token, "token_type": "bearer"}
 
 
-@router.post("/signup")
+@router.post("/signup", response_model=UserOut)
 @limiter.limit("3/minute")
 async def signup(
     request: Request,
-    user: UserCreate, 
+    user: UserCreate,
     db: AsyncSession = Depends(get_db)
 ):
     return await create_user(db, user.name, user.email, user.password)

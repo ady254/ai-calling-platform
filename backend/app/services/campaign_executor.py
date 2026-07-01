@@ -19,7 +19,9 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 import arq
+import redis.exceptions
 from arq.connections import RedisSettings
+from fastapi import HTTPException
 from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,8 +52,23 @@ def _parse_redis_settings() -> RedisSettings:
 
 
 async def _get_redis_pool() -> arq.ArqRedis:
-    """Open a short-lived ARQ Redis pool for enqueueing / flag writing."""
-    return await arq.create_pool(_parse_redis_settings())
+    """
+    Open a short-lived ARQ Redis pool for enqueueing / flag writing.
+
+    ARQ/redis-py already retries transient connection failures internally
+    (RedisSettings.conn_retries, default 5). If Redis is still unreachable
+    after those retries, translate the raw redis.exceptions error into a
+    clean 503 instead of letting it bubble up as an unhandled 500 with a
+    stack trace.
+    """
+    try:
+        return await arq.create_pool(_parse_redis_settings())
+    except (redis.exceptions.RedisError, OSError) as e:
+        logger.error(f"Could not connect to Redis for campaign control: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="Campaign task queue is temporarily unavailable. Please try again shortly.",
+        )
 
 
 async def recover_orphaned_contacts() -> None:

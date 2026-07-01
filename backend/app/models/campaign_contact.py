@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, DateTime, Enum as SAEnum
+from sqlalchemy import Column, String, ForeignKey, DateTime, Enum as SAEnum, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -20,6 +20,14 @@ class CampaignContact(Base):
     """Association table linking campaigns to contacts with call status."""
 
     __tablename__ = "campaign_contacts"
+    __table_args__ = (
+        # Backs the ON CONFLICT (campaign_id, contact_id) upsert in
+        # campaign_service.add_contacts_to_campaign — without a real unique
+        # constraint here, Postgres rejects that query outright with
+        # "no unique or exclusion constraint matching the ON CONFLICT
+        # specification" and every add-contacts-to-campaign call 500s.
+        UniqueConstraint("campaign_id", "contact_id", name="uq_campaign_contacts_campaign_id_contact_id"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     campaign_id = Column(UUID(as_uuid=True), ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False)

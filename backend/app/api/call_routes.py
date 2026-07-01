@@ -414,20 +414,28 @@ async def get_analytics(
     # in the last 7 days — catastrophic at scale. Now it's O(1) server memory.
     seven_days_ago = datetime.now(timezone.utc) - timedelta(days=6)
 
+    # Build the date_trunc('day', ...) expression once and reuse the same
+    # object in SELECT/GROUP BY/ORDER BY. Calling func.date_trunc("day", ...)
+    # separately in each clause binds "day" as three independent parameters
+    # ($1/$2/$3) — Postgres then can't prove the SELECTed expression is
+    # functionally dependent on the GROUP BY expression (different params,
+    # even though they'd carry the same value) and raises:
+    # "column call_logs.created_at must appear in the GROUP BY clause".
+    # Reusing one expression object makes SQLAlchemy emit the same bound
+    # parameter everywhere, which Postgres can then verify as identical.
+    day_bucket = func.date_trunc("day", CallLog.created_at)
+
     trend_rows = (await db.execute(
         select(
-            func.to_char(
-                func.date_trunc("day", CallLog.created_at),
-                "Mon DD"
-            ).label("day"),
+            func.to_char(day_bucket, "Mon DD").label("day"),
             func.count(CallLog.id).label("calls"),
         )
         .where(
             CallLog.business_id == biz_id,
             CallLog.created_at >= seven_days_ago,
         )
-        .group_by(func.date_trunc("day", CallLog.created_at))
-        .order_by(func.date_trunc("day", CallLog.created_at).asc())
+        .group_by(day_bucket)
+        .order_by(day_bucket.asc())
     )).all()
 
     # Build the full 7-day scaffold so days with zero calls still appear
