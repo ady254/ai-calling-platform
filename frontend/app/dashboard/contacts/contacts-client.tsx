@@ -4,13 +4,14 @@ import { useState } from "react";
 import { useContacts } from "@/hooks/useContact";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, Upload, Search, Trash2, Phone, Mail } from "lucide-react";
+import { Plus, Upload, Search, Trash2, Phone, Mail, Edit } from "lucide-react";
 
 export default function ContactsPageClient() {
-    const { contacts, loading, error, addContact, removeContact, uploadCsv } = useContacts();
+    const { contacts, loading, error, addContact, removeContact, editContact, uploadCsv } = useContacts();
     const [searchTerm, setSearchTerm] = useState("");
     const [isUploading, setIsUploading] = useState(false);
     const [showModal, setShowModal] = useState(false);
+    const [editingContactId, setEditingContactId] = useState<string | null>(null);
     const [newContact, setNewContact] = useState({
         name: "",
         phone_number: "",
@@ -44,19 +45,43 @@ export default function ContactsPageClient() {
         }
     };
 
-    const handleAddContact = async (e: React.FormEvent) => {
+    const handleSubmitContact = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSubmitting(true);
         try {
-            await addContact(newContact);
+            if (editingContactId) {
+                await editContact(editingContactId, newContact);
+                alert("Contact updated successfully!");
+            } else {
+                await addContact(newContact);
+                alert("Contact added successfully!");
+            }
             setShowModal(false);
+            setEditingContactId(null);
             setNewContact({ name: "", phone_number: "", email: "", company: "", tags: "" });
-            alert("Contact added successfully!");
         } catch (err: any) {
-            alert(`Failed to add contact: ${err.message}`);
+            alert(`Failed to ${editingContactId ? "update" : "add"} contact: ${err.message}`);
         } finally {
             setIsSubmitting(false);
         }
+    };
+
+    const handleEditClick = (contact: any) => {
+        setEditingContactId(contact.id);
+        setNewContact({
+            name: contact.name,
+            phone_number: contact.phone_number,
+            email: contact.email || "",
+            company: contact.company || "",
+            tags: contact.tags || ""
+        });
+        setShowModal(true);
+    };
+
+    const handleOpenAddModal = () => {
+        setEditingContactId(null);
+        setNewContact({ name: "", phone_number: "", email: "", company: "", tags: "" });
+        setShowModal(true);
     };
 
     return (
@@ -74,7 +99,7 @@ export default function ContactsPageClient() {
                             {isUploading ? "Importing..." : "Import CSV"}
                         </div>
                     </label>
-                    <Button className="gap-2" onClick={() => setShowModal(true)}>
+                    <Button className="gap-2" onClick={handleOpenAddModal}>
                         <Plus className="w-4 h-4" />
                         Add Contact
                     </Button>
@@ -86,12 +111,12 @@ export default function ContactsPageClient() {
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                     <Card className="w-full max-w-md p-8 animate-in fade-in zoom-in duration-200">
                         <div className="flex justify-between items-center mb-6">
-                            <h2 className="text-2xl font-bold text-slate-800">Add New Contact</h2>
+                            <h2 className="text-2xl font-bold text-slate-800">{editingContactId ? "Edit Contact" : "Add New Contact"}</h2>
                             <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600">
                                 <Plus className="w-6 h-6 rotate-45" />
                             </button>
                         </div>
-                        <form onSubmit={handleAddContact} className="space-y-4">
+                        <form onSubmit={handleSubmitContact} className="space-y-4">
                             <div className="space-y-1.5">
                                 <label className="text-xs font-bold text-slate-500 uppercase ml-1">Full Name *</label>
                                 <input 
@@ -145,7 +170,7 @@ export default function ContactsPageClient() {
                             <div className="flex gap-3 pt-4">
                                 <Button type="button" variant="outline" className="flex-1" onClick={() => setShowModal(false)}>Cancel</Button>
                                 <Button type="submit" className="flex-1" disabled={isSubmitting}>
-                                    {isSubmitting ? "Adding..." : "Save Contact"}
+                                    {isSubmitting ? "Saving..." : "Save Contact"}
                                 </Button>
                             </div>
                         </form>
@@ -190,6 +215,7 @@ export default function ContactsPageClient() {
                                     key={contact.id} 
                                     contact={contact} 
                                     onDelete={removeContact} 
+                                    onEdit={handleEditClick}
                                 />
                             ))
                         )}
@@ -201,7 +227,7 @@ export default function ContactsPageClient() {
 }
 
 // Separate component so each row manages its own call state
-function ContactRow({ contact, onDelete }: { contact: any; onDelete: (id: string) => void }) {
+function ContactRow({ contact, onDelete, onEdit }: { contact: any; onDelete: (id: string) => void; onEdit: (contact: any) => void; }) {
     const [callStatus, setCallStatus] = useState<string | null>(null);
     const [isCalling, setIsCalling] = useState(false);
 
@@ -284,10 +310,18 @@ function ContactRow({ contact, onDelete }: { contact: any; onDelete: (id: string
                         <Phone className="w-4 h-4" />
                     </button>
                     <button 
+                        onClick={() => onEdit(contact)}
+                        className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="Edit Contact"
+                    >
+                        <Edit className="w-4 h-4" />
+                    </button>
+                    <button 
                         onClick={() => {
                             if(confirm("Delete this contact?")) onDelete(contact.id);
                         }}
                         className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Delete Contact"
                     >
                         <Trash2 className="w-4 h-4" />
                     </button>

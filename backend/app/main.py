@@ -34,6 +34,25 @@ logger = logging.getLogger(__name__)
 #     leading to silent schema drift in production.
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # ── Bug #1 fix: Warn loudly at startup if webhook URL can't be reached by Twilio ──
+    base_url = settings.BASE_URL
+    if not base_url or "localhost" in base_url or "127.0.0.1" in base_url:
+        logger.warning(
+            "\u26a0\ufe0f  BASE_URL is set to a local address (%s). "
+            "Twilio cannot reach this URL for webhooks. "
+            "Run ngrok and set BASE_URL to the public HTTPS URL in .env, then restart.",
+            base_url,
+        )
+    else:
+        logger.info("BASE_URL (Twilio webhook base): %s", base_url)
+
+    if not settings.LIVEKIT_SIP_DOMAIN:
+        logger.warning(
+            "\u26a0\ufe0f  LIVEKIT_SIP_DOMAIN is not set. "
+            "Calls will play a static greeting instead of connecting to the AI agent. "
+            "Set LIVEKIT_SIP_DOMAIN in .env (found in LiveKit Console \u2192 SIP \u2192 Trunks)."
+        )
+
     # Startup: recover any contacts orphaned in CALLING state by a prior crash
     logger.info("Running startup recovery for orphaned campaign contacts...")
     await recover_orphaned_contacts()

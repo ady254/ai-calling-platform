@@ -1,4 +1,5 @@
 # Fix #32: All imports moved to the top of the file (previously split mid-file)
+import json
 import logging
 from typing import List, Optional
 from uuid import UUID
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text, update
 from twilio.request_validator import RequestValidator
 from twilio.twiml.voice_response import VoiceResponse
+from livekit.api import AccessToken, VideoGrants, SIPParticipantInfo
 
 from app.services.call_service import start_call
 from app.dependencies.database import get_db
@@ -18,7 +20,7 @@ from app.models.call_log import CallLog
 from app.models.contact import Contact
 from app.models.business import Business
 from app.models.campaign import Campaign, CampaignStatus
-from app.models.campaign_contact import CampaignContact
+from app.models.campaign_contact import CampaignContact, CampaignContactStatus
 from app.schemas.call_schema import CallLogCreate, CallLogOut, AnalyticsOut
 from app.core.config import settings
 from app.core.rate_limit import limiter
@@ -143,13 +145,33 @@ async def campaign_progress(
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async def _validate_twilio_signature(request: Request) -> bool:
-    """Validate that an incoming request genuinely came from Twilio."""
+    """
+    Validate that an incoming request genuinely came from Twilio.
+
+    Bug #1 fix: When sitting behind a reverse proxy (ngrok / nginx), FastAPI
+    sees the internal localhost URL, but Twilio signs the request with the
+    public-facing URL.  We reconstruct the public URL from X-Forwarded-Proto
+    and X-Forwarded-Host headers injected by the proxy.  Make sure you run
+    uvicorn with --proxy-headers so FastAPI trusts those headers.
+    """
     if not settings.TWILIO_AUTH_TOKEN:
         logger.warning("Twilio auth token not configured — skipping signature validation")
         return True  # Allow in dev mode when Twilio isn't configured
 
     validator = RequestValidator(settings.TWILIO_AUTH_TOKEN)
-    url = str(request.url)
+
+    # Reconstruct the public URL Twilio actually called.
+    # X-Forwarded-Proto / X-Forwarded-Host are set by ngrok and most proxies.
+    forwarded_proto = request.headers.get("X-Forwarded-Proto")
+    forwarded_host = request.headers.get("X-Forwarded-Host") or request.headers.get("Host", "")
+    if forwarded_proto and forwarded_host:
+        # Rebuild: scheme://host/path?query
+        url = f"{forwarded_proto}://{forwarded_host}{request.url.path}"
+        if request.url.query:
+            url = f"{url}?{request.url.query}"
+    else:
+        url = str(request.url)
+
     form = await request.form()
     params = dict(form)
     signature = request.headers.get("X-Twilio-Signature", "")
@@ -164,29 +186,61 @@ async def twilio_twiml(
 ):
     """
     Endpoint for Twilio to fetch TwiML instructions when a call connects.
-    Plays a short greeting and (in production) bridges to LiveKit SIP.
+
+    Bug #3 fix: When LIVEKIT_SIP_DOMAIN is configured this bridges the Twilio
+    call into a per-call LiveKit room via SIP so the AI agent can handle the
+    conversation.  The room name encodes campaign + contact so the AI agent
+    worker knows which campaign/contact context to load.
+
+    Falls back to a static recorded greeting when SIP is not yet configured
+    (useful for smoke-testing Twilio connectivity without a LiveKit SIP trunk).
     """
     if not await _validate_twilio_signature(request):
         logger.warning("Invalid Twilio signature on TwiML request")
         raise HTTPException(status_code=403, detail="Invalid Twilio signature")
 
-    # Fix #13: Use the official Twilio TwiML builder instead of f-string construction.
-    # Raw f-strings allow XML injection if campaign_id/contact_id ever contain
-    # XML special characters or </Say> sequences.
     response = VoiceResponse()
 
-    if campaign_id:
-        greeting = "Hello, you are being connected to our AI assistant."
+    if settings.LIVEKIT_SIP_DOMAIN:
+        # ── SIP bridge path (production) ──────────────────────────────────
+        # Build a unique room name for this call so the AI agent joins the
+        # right LiveKit room.  Pattern: call-<campaign_id>-<contact_id>
+        room_parts = ["call"]
+        if campaign_id:
+            room_parts.append(campaign_id)
+        if contact_id:
+            room_parts.append(contact_id)
+        room_name = "-".join(room_parts)
+
+        # Encode campaign/contact as SIP URI user-part so the LiveKit
+        # dispatch-rule (or the agent worker) can read them from the room name.
+        # SIP address: sip:<room>@<livekit-sip-domain>
+        sip_uri = f"sip:{room_name}@{settings.LIVEKIT_SIP_DOMAIN}"
+
+        logger.info(
+            f"TwiML: dialling LiveKit SIP {sip_uri} "
+            f"(campaign={campaign_id}, contact={contact_id})"
+        )
+
+        dial = response.dial()
+        dial.sip(sip_uri)
+
     else:
-        greeting = "Hello, this is an AI assistant calling on behalf of our team."
+        # ── Fallback: static greeting (no SIP trunk configured yet) ───────
+        # This lets you confirm Twilio → ngrok → backend is working even
+        # before LiveKit SIP is set up.
+        logger.warning(
+            "LIVEKIT_SIP_DOMAIN not configured — playing static greeting. "
+            "Set LIVEKIT_SIP_DOMAIN in .env to enable the AI agent."
+        )
+        if campaign_id:
+            greeting = "Hello, you are being connected to our AI assistant."
+        else:
+            greeting = "Hello, this is an AI assistant calling on behalf of our team."
 
-    response.say(greeting, voice="Polly.Joanna")
-    response.pause(length=1)
-    response.say("Thank you for your time. Goodbye.", voice="Polly.Joanna")
-
-    # TODO: When LiveKit SIP trunk is set up, replace above with:
-    # dial = response.dial()
-    # dial.sip(f"sip:campaign-{campaign_id}@your-livekit-sip-domain.com")
+        response.say(greeting, voice="Polly.Joanna")
+        response.pause(length=1)
+        response.say("Thank you for your time. Goodbye.", voice="Polly.Joanna")
 
     return Response(content=str(response), media_type="text/xml")
 
@@ -196,6 +250,10 @@ async def twilio_status_callback(request: Request, db: AsyncSession = Depends(ge
     """
     Receives call status updates from Twilio.
     Twilio sends: CallSid, CallStatus, CallDuration, To, From, etc.
+
+    Bug #2 fix: This is now the ONLY place that sets a CampaignContact to
+    COMPLETED or FAILED for real Twilio calls.  The campaign executor no longer
+    sets COMPLETED on "initiated" — it waits here.
     """
     if not await _validate_twilio_signature(request):
         logger.warning("Invalid Twilio signature on status callback")
@@ -213,8 +271,9 @@ async def twilio_status_callback(request: Request, db: AsyncSession = Depends(ge
             f"Status={call_status}, Duration={call_duration}s, To={to_number}"
         )
 
-        # Map Twilio statuses to our internal statuses
-        status_map = {
+        # Only act on terminal statuses (Twilio also sends 'initiated'/'ringing'
+        # events which we subscribed to, but those are not final).
+        terminal_status_map = {
             "completed": "completed",
             "busy": "failed",
             "failed": "failed",
@@ -222,26 +281,53 @@ async def twilio_status_callback(request: Request, db: AsyncSession = Depends(ge
             "canceled": "failed",
         }
 
-        if call_status in status_map and call_sid:
-            internal_status = status_map[call_status]
+        if call_status in terminal_status_map and call_sid:
+            internal_status = terminal_status_map[call_status]
 
             try:
                 duration_seconds = int(call_duration) if call_duration else 0
             except ValueError:
                 duration_seconds = 0
 
-            result = await db.execute(
+            # 1. Update the CallLog row
+            log_result = await db.execute(
                 update(CallLog)
                 .where(CallLog.call_sid == call_sid)
                 .values(status=internal_status, duration=duration_seconds)
-                .returning(CallLog.id)
+                .returning(CallLog.contact_id, CallLog.campaign_id)
             )
             await db.commit()
 
-            if result.first():
+            row = log_result.first()
+            if row:
                 logger.info(f"Call {call_sid} final status: {call_status} → {internal_status}")
+
+                # 2. Bug #2 fix: Update CampaignContact so the campaign executor
+                #    polling loop can see the contact has left CALLING state.
+                contact_id, campaign_id = row
+                if contact_id and campaign_id:
+                    contact_status = (
+                        CampaignContactStatus.COMPLETED
+                        if internal_status == "completed"
+                        else CampaignContactStatus.FAILED
+                    )
+                    await db.execute(
+                        update(CampaignContact)
+                        .where(
+                            CampaignContact.campaign_id == campaign_id,
+                            CampaignContact.contact_id == contact_id,
+                        )
+                        .values(call_status=contact_status)
+                    )
+                    await db.commit()
+                    logger.info(
+                        f"CampaignContact {contact_id} → {contact_status.value} "
+                        f"(campaign {campaign_id})"
+                    )
             else:
-                logger.warning(f"Status callback for unknown CallSid {call_sid} — no CallLog row updated")
+                logger.warning(
+                    f"Status callback for unknown CallSid {call_sid} — no CallLog row updated"
+                )
 
         return {"status": "ok"}
 

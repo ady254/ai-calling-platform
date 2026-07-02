@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     LIVEKIT_API_KEY: str = Field(..., description="LiveKit API key")
     LIVEKIT_API_SECRET: str = Field(..., description="LiveKit API secret")
     LIVEKIT_URL: str = Field(..., description="LiveKit WebSocket URL")
+    # SIP domain shown in LiveKit Console → SIP → Trunks (inbound).
+    # e.g. "innvox-um8kvrmw.sip.livekit.cloud"
+    # Leave empty to fall back to a recorded greeting instead of SIP.
+    LIVEKIT_SIP_DOMAIN: str = Field(default="", description="LiveKit SIP inbound domain for Twilio bridge")
 
     # LLM
     GEMINI_API_KEY: str = Field(..., description="Google Gemini API key")

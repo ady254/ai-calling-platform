@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
     Play, Plus, Trash2, Users, Pause, Square,
-    Loader2, CheckCircle, XCircle, Clock, PhoneCall
+    Loader2, CheckCircle, XCircle, Clock, PhoneCall, Edit, Copy
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -240,6 +240,30 @@ export default function CampaignsPage() {
                                             >
                                                 <Square className="w-4 h-4" />
                                             </Button>
+                                        )}
+
+                                        {/* Duplicate button (for all) */}
+                                        <Link href={`/dashboard/campaigns/duplicate/${campaign.id}`}>
+                                            <Button
+                                                variant="outline"
+                                                className="px-3 border-slate-200 hover:bg-slate-50 text-slate-500"
+                                                title="Duplicate campaign"
+                                            >
+                                                <Copy className="w-4 h-4" />
+                                            </Button>
+                                        </Link>
+
+                                        {/* Edit button (only for draft) */}
+                                        {isDraft && (
+                                            <Link href={`/dashboard/campaigns/edit/${campaign.id}`}>
+                                                <Button
+                                                    variant="outline"
+                                                    className="px-3 border-slate-200 hover:bg-slate-50 text-slate-500"
+                                                    title="Edit campaign"
+                                                >
+                                                    <Edit className="w-4 h-4" />
+                                                </Button>
+                                            </Link>
                                         )}
 
                                         {/* Delete button (only for draft, completed, cancelled) */}

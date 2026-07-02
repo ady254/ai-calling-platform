@@ -8,8 +8,15 @@ import { useAgents } from "@/hooks/useAgent";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { User, Sparkles } from "lucide-react";
+import { updateCampaign } from "@/services/campaign-service";
 
-export default function CampaignForm() {
+interface CampaignFormProps {
+    initialData?: any;
+    isEdit?: boolean;
+    campaignId?: string;
+}
+
+export default function CampaignForm({ initialData, isEdit, campaignId }: CampaignFormProps) {
     const router = useRouter();
     const { addCampaign } = useCampaigns();
     const { contacts } = useContacts();
@@ -17,19 +24,26 @@ export default function CampaignForm() {
 
     const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
-        name: "",
-        description: "",
-        objective: "",
-        language: "en",
-        ai_voice: "alloy",
-        ai_prompt: "",
-        max_retries: 2,
-        agent_id: "",
+        name: initialData?.name || "",
+        description: initialData?.description || "",
+        objective: initialData?.objective || "",
+        language: initialData?.language || "en",
+        ai_voice: initialData?.ai_voice || "alloy",
+        ai_prompt: initialData?.ai_prompt || "",
+        max_retries: initialData?.max_retries || 2,
+        agent_id: initialData?.agent_id || "",
     });
     
     // The backend will automatically assign the correct business_id based on your auth token.
 
     const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
+
+    useEffect(() => {
+        if (initialData?.contacts) {
+            // Note: backend doesn't return contacts list directly in get_campaign
+            // If we have contact IDs, we set them here.
+        }
+    }, [initialData]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
@@ -49,13 +63,21 @@ export default function CampaignForm() {
             const payload = {
                 ...formData,
                 agent_id: formData.agent_id || undefined,
-                contact_ids: selectedContacts
             };
-            await addCampaign(payload as any);
-            alert("Campaign created successfully!");
+            if (isEdit && campaignId) {
+                await updateCampaign(campaignId, payload);
+                alert("Campaign updated successfully!");
+            } else {
+                const addPayload = {
+                    ...payload,
+                    contact_ids: selectedContacts
+                };
+                await addCampaign(addPayload as any);
+                alert("Campaign created successfully!");
+            }
             router.push("/dashboard/campaigns");
         } catch (error: any) {
-            alert(`Error creating campaign: ${error.message}`);
+            alert(`Error ${isEdit ? "updating" : "creating"} campaign: ${error.message}`);
         } finally {
             setLoading(false);
         }
@@ -65,7 +87,7 @@ export default function CampaignForm() {
         <form onSubmit={handleSubmit} className="max-w-4xl space-y-8">
             <Card className="p-8">
                 <div className="mb-6">
-                    <h2 className="text-xl font-bold text-slate-800">Campaign Details</h2>
+                    <h2 className="text-xl font-bold text-slate-800">{isEdit ? "Edit Campaign Details" : "Campaign Details"}</h2>
                     <p className="text-sm text-slate-500">Define the core settings for your AI outreach.</p>
                 </div>
 
@@ -260,7 +282,7 @@ export default function CampaignForm() {
             <div className="flex justify-end gap-4">
                 <Button type="button" variant="ghost" onClick={() => router.back()}>Cancel</Button>
                 <Button type="submit" disabled={loading}>
-                    {loading ? "Creating..." : "Create Campaign"}
+                    {loading ? "Saving..." : (isEdit ? "Save Changes" : "Create Campaign")}
                 </Button>
             </div>
         </form>

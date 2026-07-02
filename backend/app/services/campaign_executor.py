@@ -278,6 +278,11 @@ async def _process_campaign(ctx: dict, campaign_id: UUID, business_id: UUID) -> 
 
             await _call_single_contact(campaign_id, business_id, contact_id)
 
+            # Bug #2 fix: Wait for the Twilio status-callback to resolve this
+            # contact from CALLING → COMPLETED/FAILED/SKIPPED before moving to
+            # the next one. Poll every 3 s, time-out after 5 minutes.
+            await _wait_for_contact_resolution(campaign_id, contact_id, timeout_seconds=300)
+
             # Brief delay between calls (Twilio rate limiting)
             await asyncio.sleep(2)
 
@@ -346,7 +351,10 @@ async def _call_single_contact(
                 db.add(call_log)
                 await db.commit()
 
-                await _update_contact_status(campaign_id, contact_id, CampaignContactStatus.COMPLETED)
+                # Bug #2 fix: Do NOT mark COMPLETED here. The contact stays in
+                # CALLING state; the Twilio status-callback webhook
+                # (/call/twilio/status-callback) will set COMPLETED or FAILED
+                # once the call truly ends (answered+completed, busy, no-answer).
                 logger.info(f"Call placed to {contact.phone_number} — SID: {call_result.get('sid')}")
 
             elif call_result.get("status") == "simulated":
@@ -358,6 +366,7 @@ async def _call_single_contact(
                 )
                 db.add(call_log)
                 await db.commit()
+                # Simulated calls have no real Twilio callback, so mark done now.
                 await _update_contact_status(campaign_id, contact_id, CampaignContactStatus.COMPLETED)
                 logger.info(f"Simulated call to {contact.phone_number}")
 
@@ -384,3 +393,53 @@ async def _update_contact_status(
             .values(call_status=status)
         )
         await db.commit()
+
+
+async def _wait_for_contact_resolution(
+    campaign_id: UUID,
+    contact_id: UUID,
+    timeout_seconds: int = 300,
+    poll_interval: float = 3.0,
+) -> None:
+    """
+    Bug #2 fix: Poll until the CampaignContact leaves CALLING state.
+
+    When a real Twilio call is placed, the contact stays in CALLING until
+    Twilio's status-callback fires and updates it to COMPLETED or FAILED.
+    This function blocks the campaign loop from advancing to the next contact
+    until that transition happens, OR until timeout_seconds elapses (at which
+    point the contact is force-marked FAILED to prevent it being stuck forever).
+    """
+    _terminal = {
+        CampaignContactStatus.COMPLETED,
+        CampaignContactStatus.FAILED,
+        CampaignContactStatus.SKIPPED,
+    }
+    elapsed = 0.0
+    while elapsed < timeout_seconds:
+        await asyncio.sleep(poll_interval)
+        elapsed += poll_interval
+
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(
+                select(CampaignContact.call_status).where(
+                    CampaignContact.campaign_id == campaign_id,
+                    CampaignContact.contact_id == contact_id,
+                )
+            )).scalar_one_or_none()
+
+        if row is None or row in _terminal:
+            return  # resolved
+
+        logger.debug(
+            f"Waiting for contact {contact_id} to resolve "
+            f"(still {row}, elapsed {elapsed:.0f}s)"
+        )
+
+    # Timed-out — mark failed so the campaign can continue
+    logger.warning(
+        f"Contact {contact_id} timed out after {timeout_seconds}s in CALLING state "
+        "— marking FAILED (Twilio status-callback may not have arrived)"
+    )
+    await _update_contact_status(campaign_id, contact_id, CampaignContactStatus.FAILED)
+
