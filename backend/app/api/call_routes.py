@@ -215,7 +215,11 @@ async def twilio_twiml(
         # Encode campaign/contact as SIP URI user-part so the LiveKit
         # dispatch-rule (or the agent worker) can read them from the room name.
         # SIP address: sip:<room>@<livekit-sip-domain>
-        sip_uri = f"sip:{room_name}@{settings.LIVEKIT_SIP_DOMAIN}"
+        # LIVEKIT_SIP_DOMAIN is a bare domain (LiveKit Console → SIP → Trunks),
+        # but strip an accidental "sip:" prefix so a misconfigured .env doesn't
+        # produce a double-scheme URI like "sip:room@sip:domain".
+        sip_domain = settings.LIVEKIT_SIP_DOMAIN.removeprefix("sip:")
+        sip_uri = f"sip:{room_name}@{sip_domain}"
 
         logger.info(
             f"TwiML: dialling LiveKit SIP {sip_uri} "

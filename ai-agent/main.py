@@ -103,6 +103,21 @@ async def entrypoint(ctx: JobContext):
         except (json.JSONDecodeError, KeyError, TypeError) as e:
             logger.warning(f"Failed to parse participant metadata: {e}. Raw: {metadata_str!r}")
 
+    # Twilio-originated SIP calls carry no participant metadata (Twilio doesn't
+    # set it), so the backend encodes campaign/contact context in the room name
+    # instead: "call-<campaign_id>-<contact_id>" (see call_routes.py twilio_twiml).
+    # UUIDs are a fixed 36 chars, which lets us slice them out even though they
+    # contain hyphens themselves.
+    if not campaign_id and ctx.room.name.startswith("call-"):
+        remainder = ctx.room.name[len("call-"):]
+        UUID_LEN = 36
+        if len(remainder) >= UUID_LEN:
+            campaign_id = remainder[:UUID_LEN]
+            rest = remainder[UUID_LEN:]
+            if rest.startswith("-") and len(rest) - 1 >= UUID_LEN:
+                contact_id = rest[1:1 + UUID_LEN]
+            logger.info(f"Parsed from room name: campaign_id={campaign_id}, contact_id={contact_id}")
+
     instructions = "You are a helpful AI assistant. Keep your answers brief."
     voice_id = "qtqlHrXyBpEXHx2JBPgx"
     greeting = "Hello, how can I help you today?"

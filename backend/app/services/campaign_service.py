@@ -123,3 +123,24 @@ async def add_contacts_to_campaign(db: AsyncSession, campaign_id: UUID, contact_
     await db.execute(stmt)
     await db.commit()
     return True
+
+async def renew_campaign(db: AsyncSession, campaign_id: UUID) -> bool:
+    """
+    Renews a campaign by resetting its status to DRAFT and all its contacts' call_status to PENDING.
+    """
+    # 1. Update Campaign status
+    stmt = update(Campaign).where(Campaign.id == campaign_id).values(
+        status=CampaignStatus.DRAFT
+    )
+    await db.execute(stmt)
+
+    # 2. Update CampaignContact status
+    stmt2 = update(CampaignContact).where(CampaignContact.campaign_id == campaign_id).values(
+        call_status="PENDING",
+        called_at=None,
+        twilio_call_sid=None
+    )
+    await db.execute(stmt2)
+
+    await db.commit()
+    return True

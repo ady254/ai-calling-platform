@@ -6,7 +6,8 @@ from uuid import UUID
 from app.schemas.campaign_schema import CampaignCreate, CampaignUpdate, CampaignOut, CampaignContactAdd
 from app.services.campaign_service import (
     create_campaign, get_campaigns_by_business, get_campaign,
-    update_campaign, delete_campaign, add_contacts_to_campaign
+    update_campaign, delete_campaign, add_contacts_to_campaign,
+    renew_campaign
 )
 from app.models.business import Business
 from app.dependencies.database import get_db
@@ -96,4 +97,20 @@ async def add_contacts_route(
         raise HTTPException(status_code=403, detail="Not authorized to access this campaign")
     
     await add_contacts_to_campaign(db, campaign_id, data.contact_ids)
+    return {"success": True}
+
+@router.post("/{campaign_id}/renew")
+async def renew_campaign_route(
+    campaign_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user)
+):
+    business = await get_user_business(db, user_id)
+    campaign = await get_campaign(db, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    if str(campaign["business_id"]) != str(business.id):
+        raise HTTPException(status_code=403, detail="Not authorized to access this campaign")
+    
+    await renew_campaign(db, campaign_id)
     return {"success": True}
