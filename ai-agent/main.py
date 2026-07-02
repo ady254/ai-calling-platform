@@ -5,6 +5,7 @@ import aiohttp
 from dotenv import load_dotenv
 from livekit.agents import AgentSession, Agent, JobContext, WorkerOptions, cli, RoomInputOptions
 from livekit.plugins import google, deepgram, silero, elevenlabs
+from livekit.plugins.elevenlabs.tts import VoiceSettings
 import os
 
 load_dotenv()
@@ -149,13 +150,15 @@ async def entrypoint(ctx: JobContext):
     session = AgentSession(
         vad=silero.VAD.load(),
         stt=deepgram.STT(),
-        llm=google.LLM(model="gemini-1.5-flash"),
+        llm=google.LLM(model="gemini-2.5-flash"),
         tts=elevenlabs.TTS(
             model="eleven_multilingual_v2",
             voice_id=voice_id,
             api_key=os.getenv("ELEVEN_API_KEY"),
-            stability=stability,
-            similarity_boost=similarity_boost,
+            voice_settings=VoiceSettings(
+                stability=stability,
+                similarity_boost=similarity_boost,
+            ),
         ),
         allow_interruptions=False,
     )
