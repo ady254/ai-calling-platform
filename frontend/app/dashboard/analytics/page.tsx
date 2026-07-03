@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Phone, CheckCircle, XCircle, Clock, Activity } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Phone, CheckCircle, XCircle, Clock, Activity, RefreshCw } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { api } from "@/services/api";
 
 interface AnalyticsData {
     total_calls: number;
@@ -17,27 +18,36 @@ export default function AnalyticsPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        const fetchAnalytics = async () => {
-            try {
-                const token = localStorage.getItem("token");
-                const res = await fetch("http://localhost:8000/call/analytics", {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                if (!res.ok) throw new Error("Failed to fetch analytics");
-                const json = await res.json();
-                setData(json);
-            } catch (err: any) {
-                setError(err.message);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchAnalytics();
+    const fetchAnalytics = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await api.get<AnalyticsData>("/call/analytics");
+            setData(res.data);
+        } catch (err) {
+            console.error("Failed to fetch analytics", err);
+            setError("Couldn't load analytics. Check your connection and try again.");
+        } finally {
+            setLoading(false);
+        }
     }, []);
 
+    useEffect(() => {
+        fetchAnalytics();
+    }, [fetchAnalytics]);
+
     if (loading) return <div className="p-8 text-slate-500 animate-pulse">Loading analytics...</div>;
-    if (error) return <div className="p-8 text-rose-500">Error: {error}</div>;
+    if (error) return (
+        <div className="p-8 flex flex-col items-start gap-3">
+            <p className="text-slate-500">{error}</p>
+            <button
+                onClick={fetchAnalytics}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium transition-colors"
+            >
+                <RefreshCw className="w-4 h-4" /> Retry
+            </button>
+        </div>
+    );
 
     const cards = [
         { title: "Total Calls", value: data?.total_calls || 0, icon: Phone, color: "text-blue-500", bg: "bg-blue-50" },

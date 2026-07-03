@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { User, Mail, Lock, ArrowRight, Activity } from "lucide-react";
+import { toast } from "sonner";
 import { authService } from "@/services/auth-service";
 
 export default function SignupPage() {
@@ -18,10 +19,10 @@ export default function SignupPage() {
     setLoading(true);
     try {
       await authService.signup({ name, email, password });
-      alert("Registration successful! Please login.");
+      toast.success("Account created! Please log in.");
       router.push("/login");
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Registration failed");
+      toast.error(err.response?.data?.detail || "Registration failed. Please try again.");
     } finally {
       setLoading(false);
     }

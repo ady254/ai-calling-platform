@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
+import { api } from "@/services/api";
 import { useAgents } from "../../../hooks/useAgent";
 import { Card } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -51,15 +53,15 @@ export default function AgentConfigurationClient() {
         try {
             if (editingId) {
                 await editAgent(editingId, formData);
-                alert("Agent updated successfully!");
+                toast.success("Agent updated");
             } else {
                 await addAgent(formData);
-                alert("Agent created successfully!");
+                toast.success("Agent created");
             }
             setShowModal(false);
             resetForm();
         } catch (err: any) {
-            alert(`Error: ${err.message}`);
+            toast.error(`Couldn't save agent: ${err.message}`);
         } finally {
             setIsSubmitting(false);
         }
@@ -83,23 +85,16 @@ export default function AgentConfigurationClient() {
         
         try {
             setPlayingVoiceId(agent.id);
-            const token = localStorage.getItem("token");
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/agent/preview`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${token}`
-                },
-                body: JSON.stringify({ 
+            const response = await api.post(
+                "/agent/preview",
+                {
                     voice_id: agent.voice_id,
-                    text: `Hi, I am ${agent.name}. ${agent.description || "I am your AI assistant."}`
-                })
-            });
+                    text: `Hi, I am ${agent.name}. ${agent.description || "I am your AI assistant."}`,
+                },
+                { responseType: "blob" }
+            );
 
-            if (!response.ok) throw new Error("Failed to generate voice preview");
-
-            const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
+            const url = URL.createObjectURL(response.data);
             const audio = new Audio(url);
             
             audio.onended = () => {
@@ -114,7 +109,7 @@ export default function AgentConfigurationClient() {
             await audio.play();
         } catch (err) {
             console.error(err);
-            alert("Error playing voice preview. Ensure your ElevenLabs API Key is set in the backend.");
+            toast.error("Couldn't play voice preview. Check that the ElevenLabs API key is configured.");
             setPlayingVoiceId(null);
         }
     };
@@ -158,7 +153,13 @@ export default function AgentConfigurationClient() {
                                     <button onClick={() => handleEdit(agent)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
                                         <Edit2 className="w-4 h-4" />
                                     </button>
-                                    <button onClick={() => { if(confirm("Delete agent?")) removeAgent(agent.id); }} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                                    <button onClick={() => {
+                                        toast(`Delete agent "${agent.name}"?`, {
+                                            description: "This cannot be undone.",
+                                            action: { label: "Delete", onClick: () => removeAgent(agent.id) },
+                                            cancel: { label: "Cancel", onClick: () => {} },
+                                        });
+                                    }} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
                                         <Trash2 className="w-4 h-4" />
                                     </button>
                                 </div>

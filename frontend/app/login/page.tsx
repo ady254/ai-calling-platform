@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Mail, Lock, ArrowRight, ShieldCheck } from "lucide-react";
+import { toast } from "sonner";
 import { authService } from "@/services/auth-service";
 
 export default function LoginPage() {
@@ -19,7 +20,7 @@ export default function LoginPage() {
             await authService.login({ email, password });
             router.push("/dashboard");
         } catch (err: any) {
-            alert(err.response?.data?.detail || "Login failed");
+            toast.error(err.response?.data?.detail || "Login failed. Check your email and password.");
         } finally {
             setLoading(false);
         }

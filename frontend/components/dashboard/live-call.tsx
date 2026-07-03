@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import { Room, RoomEvent, Track, RemoteTrackPublication, RemoteParticipant } from "livekit-client";
 import { Mic, MicOff, Phone, PhoneOff, Activity, Volume2 } from "lucide-react";
+import { toast } from "sonner";
+import { api } from "@/services/api";
 
 interface LiveCallProps {
     campaignId?: string;
@@ -38,35 +40,16 @@ export default function LiveCall({ campaignId, contactId }: LiveCallProps) {
         startTimeRef.current = new Date();
 
         try {
-            const token = localStorage.getItem("token");
-
-            if (!token) {
-                alert("Please login first");
-                setIsConnecting(false);
-                setStatusText("Ready to connect");
-                return;
-            }
-
-            // Build URL with query params
-            let url = "http://localhost:8000/livekit/token?room_name=test-room";
-            if (campaignId) url += `&campaign_id=${campaignId}`;
-            if (activeContactId) url += `&contact_id=${activeContactId}`;
-
             // Fetch LiveKit token and URL from backend
-            const res = await fetch(url, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
+            const params: Record<string, string> = { room_name: "test-room" };
+            if (campaignId) params.campaign_id = campaignId;
+            if (activeContactId) params.contact_id = activeContactId;
 
-            if (!res.ok) {
-                throw new Error("Failed to fetch token");
-            }
-
-            const data = await res.json();
+            const res = await api.get("/livekit/token", { params });
+            const data = res.data;
 
             if (!data.token) {
-                alert("Token not received");
+                toast.error("Couldn't start the session — no token received.");
                 setIsConnecting(false);
                 setStatusText("Ready to connect");
                 return;
@@ -165,7 +148,7 @@ export default function LiveCall({ campaignId, contactId }: LiveCallProps) {
 
         } catch (err) {
             console.error("Call error:", err);
-            alert("Error starting call. Please check if the AI Agent is running.");
+            toast.error("Couldn't start the call. Check that the AI agent is running.");
             setStatusText("Connection failed");
         } finally {
             setIsConnecting(false);

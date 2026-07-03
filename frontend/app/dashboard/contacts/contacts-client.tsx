@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
 import { useContacts } from "@/hooks/useContact";
+import { api } from "@/services/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Plus, Upload, Search, Trash2, Phone, Mail, Edit } from "lucide-react";
@@ -36,9 +38,9 @@ export default function ContactsPageClient() {
         setIsUploading(true);
         try {
             await uploadCsv(file);
-            alert("Contacts imported successfully!");
+            toast.success("Contacts imported successfully");
         } catch (err: any) {
-            alert(`Import failed: ${err.message}`);
+            toast.error(`Import failed: ${err.message}`);
         } finally {
             setIsUploading(false);
             if (e.target) e.target.value = '';
@@ -51,16 +53,16 @@ export default function ContactsPageClient() {
         try {
             if (editingContactId) {
                 await editContact(editingContactId, newContact);
-                alert("Contact updated successfully!");
+                toast.success("Contact updated");
             } else {
                 await addContact(newContact);
-                alert("Contact added successfully!");
+                toast.success("Contact added");
             }
             setShowModal(false);
             setEditingContactId(null);
             setNewContact({ name: "", phone_number: "", email: "", company: "", tags: "" });
         } catch (err: any) {
-            alert(`Failed to ${editingContactId ? "update" : "add"} contact: ${err.message}`);
+            toast.error(`Failed to ${editingContactId ? "update" : "add"} contact: ${err.message}`);
         } finally {
             setIsSubmitting(false);
         }
@@ -86,7 +88,7 @@ export default function ContactsPageClient() {
 
     return (
         <div className="w-full">
-            <header className="mb-10 w-full flex justify-between items-end">
+            <header className="mb-10 w-full flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4">
                 <div>
                     <h1 className="text-4xl font-semibold text-slate-800 tracking-tight">Contacts</h1>
                     <p className="text-slate-500 mt-2">Manage your contact lists for AI campaigns.</p>
@@ -192,7 +194,8 @@ export default function ContactsPageClient() {
             </Card>
 
             <div className="bg-white border border-slate-100 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
-                <table className="w-full text-left">
+                <div className="overflow-x-auto">
+                <table className="w-full text-left min-w-[720px]">
                     <thead className="bg-slate-50 border-b border-slate-100">
                         <tr>
                             <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Name</th>
@@ -221,6 +224,7 @@ export default function ContactsPageClient() {
                         )}
                     </tbody>
                 </table>
+                </div>
             </div>
         </div>
     );
@@ -235,22 +239,22 @@ function ContactRow({ contact, onDelete, onEdit }: { contact: any; onDelete: (id
         setIsCalling(true);
         setCallStatus(null);
         try {
-            const token = localStorage.getItem("token");
-            const res = await fetch(`http://localhost:8000/call/start/${contact.id}`, {
-                method: "POST",
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            const data = await res.json();
-            
+            const res = await api.post(`/call/start/${contact.id}`);
+            const data = res.data;
+
             if (data.status === "initiated") {
                 setCallStatus("✅ Ringing...");
+                toast.success(`Calling ${contact.name}...`);
             } else if (data.status === "simulated") {
                 setCallStatus("⚠️ Simulated");
+                toast.info("Simulated call — configure Twilio credentials to make real calls");
             } else {
-                setCallStatus(`❌ ${data.error || "Failed"}`);
+                setCallStatus("❌ Failed");
+                toast.error(data.error || "Call failed to start");
             }
         } catch (err) {
-            setCallStatus("❌ Network error");
+            setCallStatus("❌ Error");
+            toast.error("Couldn't start the call. Check your connection.");
         } finally {
             setIsCalling(false);
             setTimeout(() => setCallStatus(null), 5000);
@@ -316,9 +320,13 @@ function ContactRow({ contact, onDelete, onEdit }: { contact: any; onDelete: (id
                     >
                         <Edit className="w-4 h-4" />
                     </button>
-                    <button 
+                    <button
                         onClick={() => {
-                            if(confirm("Delete this contact?")) onDelete(contact.id);
+                            toast(`Delete ${contact.name}?`, {
+                                description: "This cannot be undone.",
+                                action: { label: "Delete", onClick: () => onDelete(contact.id) },
+                                cancel: { label: "Cancel", onClick: () => {} },
+                            });
                         }}
                         className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                         title="Delete Contact"

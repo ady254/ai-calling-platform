@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { PhoneCall, FileText, CheckCircle, XCircle } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { PhoneCall, FileText, CheckCircle, XCircle, RefreshCw } from "lucide-react";
+import { api } from "@/services/api";
 
 interface CallLog {
     id: string;
@@ -36,27 +37,26 @@ function outcomeLabel(outcome: string): string {
 export default function CallLogsPage() {
     const [logs, setLogs] = useState<CallLog[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(false);
     const [selectedLog, setSelectedLog] = useState<CallLog | null>(null);
 
-    useEffect(() => {
-        const fetchLogs = async () => {
-            try {
-                const token = localStorage.getItem("token");
-                const res = await fetch("http://localhost:8000/call/logs", {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    setLogs(data);
-                }
-            } catch (err) {
-                console.error("Failed to fetch logs", err);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchLogs();
+    const fetchLogs = useCallback(async () => {
+        setLoading(true);
+        setError(false);
+        try {
+            const res = await api.get<CallLog[]>("/call/logs");
+            setLogs(res.data);
+        } catch (err) {
+            console.error("Failed to fetch logs", err);
+            setError(true);
+        } finally {
+            setLoading(false);
+        }
     }, []);
+
+    useEffect(() => {
+        fetchLogs();
+    }, [fetchLogs]);
 
     return (
         <div className="w-full">
@@ -66,7 +66,8 @@ export default function CallLogsPage() {
             </header>
 
             <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
-                <table className="w-full text-left">
+                <div className="overflow-x-auto">
+                <table className="w-full text-left min-w-[640px]">
                     <thead className="bg-slate-50/50 border-b border-slate-100">
                         <tr>
                             <th className="py-4 px-6 text-xs font-semibold text-slate-500 uppercase tracking-wider">Date</th>
@@ -80,6 +81,18 @@ export default function CallLogsPage() {
                         {loading ? (
                             <tr>
                                 <td colSpan={5} className="py-8 text-center text-slate-400 animate-pulse">Loading calls...</td>
+                            </tr>
+                        ) : error ? (
+                            <tr>
+                                <td colSpan={5} className="py-10 text-center">
+                                    <p className="text-slate-500 mb-3">Couldn&apos;t load call logs. Check your connection and try again.</p>
+                                    <button
+                                        onClick={fetchLogs}
+                                        className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium transition-colors"
+                                    >
+                                        <RefreshCw className="w-4 h-4" /> Retry
+                                    </button>
+                                </td>
                             </tr>
                         ) : logs.length === 0 ? (
                             <tr>
@@ -125,6 +138,7 @@ export default function CallLogsPage() {
                         )}
                     </tbody>
                 </table>
+                </div>
             </div>
 
             {/* Call Details Modal */}

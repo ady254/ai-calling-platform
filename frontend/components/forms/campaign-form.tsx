@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { useCampaigns } from "@/hooks/useCampaign";
 import { useContacts } from "@/hooks/useContact";
 import { useAgents } from "@/hooks/useAgent";
@@ -66,18 +67,18 @@ export default function CampaignForm({ initialData, isEdit, campaignId }: Campai
             };
             if (isEdit && campaignId) {
                 await updateCampaign(campaignId, payload);
-                alert("Campaign updated successfully!");
+                toast.success("Campaign updated");
             } else {
                 const addPayload = {
                     ...payload,
                     contact_ids: selectedContacts
                 };
                 await addCampaign(addPayload as any);
-                alert("Campaign created successfully!");
+                toast.success("Campaign created");
             }
             router.push("/dashboard/campaigns");
         } catch (error: any) {
-            alert(`Error ${isEdit ? "updating" : "creating"} campaign: ${error.message}`);
+            toast.error(`Couldn't ${isEdit ? "update" : "create"} campaign: ${error.message}`);
         } finally {
             setLoading(false);
         }

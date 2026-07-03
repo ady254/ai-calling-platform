@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { toast } from "sonner";
 import { useCampaigns } from "@/hooks/useCampaign";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -51,8 +52,9 @@ export default function CampaignsPage() {
                     setProgressMap(prev => ({ ...prev, [campaignId]: res.data }));
                 } catch { }
             }, 1000);
+            toast.success("Campaign started");
         } catch (err: any) {
-            alert(err.response?.data?.detail || "Failed to start campaign");
+            toast.error(err.response?.data?.detail || "Failed to start campaign");
         } finally {
             setActionLoading(prev => ({ ...prev, [campaignId]: false }));
         }
@@ -63,24 +65,34 @@ export default function CampaignsPage() {
         try {
             await pauseCampaign(campaignId);
             await refresh();
+            toast.success("Campaign paused");
         } catch (err: any) {
-            alert(err.response?.data?.detail || "Failed to pause campaign");
+            toast.error(err.response?.data?.detail || "Failed to pause campaign");
         } finally {
             setActionLoading(prev => ({ ...prev, [campaignId]: false }));
         }
     };
 
-    const handleStop = async (campaignId: string) => {
-        if (!confirm("Are you sure you want to stop this campaign? This cannot be undone.")) return;
-        setActionLoading(prev => ({ ...prev, [campaignId]: true }));
-        try {
-            await stopCampaign(campaignId);
-            await refresh();
-        } catch (err: any) {
-            alert(err.response?.data?.detail || "Failed to stop campaign");
-        } finally {
-            setActionLoading(prev => ({ ...prev, [campaignId]: false }));
-        }
+    const handleStop = (campaignId: string) => {
+        toast("Stop this campaign?", {
+            description: "Remaining contacts will not be called. This cannot be undone.",
+            action: {
+                label: "Stop Campaign",
+                onClick: async () => {
+                    setActionLoading(prev => ({ ...prev, [campaignId]: true }));
+                    try {
+                        await stopCampaign(campaignId);
+                        await refresh();
+                        toast.success("Campaign stopped");
+                    } catch (err: any) {
+                        toast.error(err.response?.data?.detail || "Failed to stop campaign");
+                    } finally {
+                        setActionLoading(prev => ({ ...prev, [campaignId]: false }));
+                    }
+                },
+            },
+            cancel: { label: "Cancel", onClick: () => {} },
+        });
     };
 
     if (loading) return <div className="p-8 text-slate-500 animate-pulse">Loading campaigns...</div>;
@@ -272,9 +284,11 @@ export default function CampaignsPage() {
                                                 variant="outline"
                                                 className="px-3 border-red-100 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
                                                 onClick={() => {
-                                                    if (confirm("Are you sure you want to delete this campaign?")) {
-                                                        removeCampaign(campaign.id);
-                                                    }
+                                                    toast(`Delete "${campaign.name}"?`, {
+                                                        description: "This cannot be undone.",
+                                                        action: { label: "Delete", onClick: () => removeCampaign(campaign.id) },
+                                                        cancel: { label: "Cancel", onClick: () => {} },
+                                                    });
                                                 }}
                                             >
                                                 <Trash2 className="w-4 h-4" />

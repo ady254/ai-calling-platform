@@ -1,4 +1,5 @@
 import axios from "axios";
+import { toast } from "sonner";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -28,7 +29,7 @@ api.interceptors.response.use(
                 // In a real Next.js app, this should ideally dispatch an event or use a
                 // global state manager to trigger a router.push("/login"), but at minimum
                 // we shouldn't force a hard reload without warning.
-                console.warn("Session expired. Redirecting to login...");
+                toast.error("Your session has expired. Redirecting to login...");
                 setTimeout(() => {
                     if (window.location.pathname !== "/login") {
                          window.location.href = "/login";

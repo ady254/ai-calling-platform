@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { Room } from "livekit-client";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { toast } from "sonner";
+import { api } from "@/services/api";
 
 /**
  * Joins the authenticated user's LiveKit room for a live voice session.
@@ -18,26 +18,16 @@ export const useCalling = (authToken: string | null) => {
 
   const joinRoom = useCallback(async () => {
     if (!authToken) {
-      alert("Please login first");
+      toast.error("Please log in first");
       return;
     }
 
     try {
-      const res = await fetch(
-        `${API_URL}/livekit/token?room_name=test-room`,
-        {
-          headers: {
-            Authorization: `Bearer ${authToken}`,
-          },
-        }
-      );
+      const res = await api.get("/livekit/token", {
+        params: { room_name: "test-room" },
+      });
+      const data = res.data;
 
-      if (!res.ok) {
-        console.error("Failed to fetch LiveKit token:", res.status, await res.text());
-        return;
-      }
-
-      const data = await res.json();
       const newRoom = new Room({
         adaptiveStream: true,
         dynacast: true,
@@ -48,7 +38,7 @@ export const useCalling = (authToken: string | null) => {
 
       const livekitUrl = data.livekit_url || process.env.NEXT_PUBLIC_LIVEKIT_URL;
       if (!livekitUrl) {
-        console.error("No LiveKit URL available (set NEXT_PUBLIC_LIVEKIT_URL)");
+        toast.error("Live call is not configured (missing LiveKit URL)");
         return;
       }
       await newRoom.connect(livekitUrl, data.token);
@@ -57,6 +47,7 @@ export const useCalling = (authToken: string | null) => {
       setRoom(newRoom);
     } catch (err) {
       console.error("Failed to join LiveKit room:", err);
+      toast.error("Couldn't start the live session. Please try again.");
     }
   }, [authToken]);
 

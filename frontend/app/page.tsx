@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { ArrowRight, Phone, HeartPulse, Building, CircleDollarSign, ShoppingCart, Truck, Users, Scissors } from 'lucide-react';
+import LiveDemo from '@/components/landing/live-demo';
 
 export default function Home() {
     return (
@@ -60,10 +61,18 @@ export default function Home() {
                     AI Voice Agents handle calls, qualify leads, book appointments, and support customers automatically. 24/7.
                 </p>
 
-                <Link href="/login" className="inline-flex items-center gap-2 bg-[#111] text-white px-8 py-4 rounded-full font-medium hover:bg-slate-800 transition-all hover:scale-105 active:scale-95 shadow-xl shadow-black/10">
-                    Talk to AI Agent
-                </Link>
+                <div className="flex items-center gap-4">
+                    <a href="#live-demo" className="inline-flex items-center gap-2 bg-[#111] text-white px-8 py-4 rounded-full font-medium hover:bg-slate-800 transition-all hover:scale-105 active:scale-95 shadow-xl shadow-black/10">
+                        See a Live Call Demo
+                    </a>
+                    <Link href="/signup" className="inline-flex items-center gap-2 text-slate-700 px-8 py-4 rounded-full font-medium border border-slate-200 bg-white hover:border-slate-300 transition-all shadow-sm">
+                        Talk to AI Agent <ArrowRight className="w-4 h-4" />
+                    </Link>
+                </div>
             </section>
+
+            {/* Live Demo Section */}
+            <LiveDemo />
 
             {/* Industries Section */}
             <section className="bg-white/80 backdrop-blur-3xl py-32 border-t border-slate-100/50 relative z-10 shadow-[0_-20px_40px_rgb(0,0,0,0.02)] rounded-t-[3rem]">
