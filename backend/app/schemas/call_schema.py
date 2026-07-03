@@ -18,6 +18,9 @@ class CallLogOut(BaseModel):
     transcript: Optional[str] = None
     created_at: Optional[datetime] = None
     duration: Optional[int] = 0
+    outcome: Optional[str] = None
+    summary: Optional[str] = None
+    follow_up: Optional[str] = None
 
     class Config:
         from_attributes = True

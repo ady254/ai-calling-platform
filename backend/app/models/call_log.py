@@ -21,6 +21,14 @@ class CallLog(Base):
     transcript = Column(String, nullable=True)
     duration = Column(Integer, default=0)
 
+    # Post-call outcome extracted from the transcript by the LLM after the
+    # call ends: confirmed, rescheduled, callback_requested, not_interested,
+    # do_not_call, wrong_person, incomplete, other. Null until extraction
+    # runs (or when there is no transcript to analyze).
+    outcome = Column(String(32), nullable=True)
+    summary = Column(String, nullable=True)
+    follow_up = Column(String, nullable=True)
+
     # Twilio's CallSid — lets the async status-callback webhook find and
     # update the right row once the call actually finishes.
     call_sid = Column(String(64), nullable=True, index=True)

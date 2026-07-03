@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+import logging
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 from uuid import UUID
 from typing import List, Optional
 import io
@@ -39,6 +41,8 @@ from app.core.rate_limit import limiter
 from fastapi import Header
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 @router.post("/", response_model=AgentOut)
 async def create_agent_route(
@@ -220,26 +224,51 @@ async def get_campaign_config_internal(
     config["variables"] = variables
     return config
 
+async def _extract_and_store_outcome(call_log_id: UUID, transcript: str) -> None:
+    """
+    Background task: run LLM outcome extraction on a finished call's
+    transcript and write the result onto the CallLog row. Runs after the
+    response is sent, with its own DB session — a failure here (e.g. a
+    Gemini rate limit) leaves outcome null but never loses the call log.
+    """
+    from app.db.session import AsyncSessionLocal
+    from app.services.ai_service import extract_call_outcome
+
+    result = await extract_call_outcome(transcript)
+    if not result:
+        return
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(CallLog).where(CallLog.id == call_log_id).values(**result)
+        )
+        await db.commit()
+    logger.info(f"Call log {call_log_id} outcome extracted: {result.get('outcome')}")
+
+
 @router.post("/internal/call_log", tags=["Internal"])
 async def create_call_log_internal(
     data: dict,  # Using dict because we need both contact and campaign ID
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     _ = Depends(verify_internal_key)
 ):
     """
-    Saves a call log from the AI worker.
+    Saves a call log from the AI worker, then extracts a structured outcome
+    (confirmed / rescheduled / callback_requested / ...) from the transcript
+    in the background.
     """
     campaign_id = UUID(data.get("campaign_id"))
     contact_id = UUID(data.get("contact_id"))
-    
+
     # Get campaign to find business_id
     stmt = select(Campaign).filter(Campaign.id == campaign_id)
     result = await db.execute(stmt)
     campaign = result.scalar_one_or_none()
-    
+
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
-        
+
     call_log = CallLog(
         contact_id=contact_id,
         campaign_id=campaign_id,
@@ -248,7 +277,13 @@ async def create_call_log_internal(
         transcript=data.get("transcript"),
         duration=data.get("duration", 0)
     )
-    
+
     db.add(call_log)
     await db.commit()
+
+    if call_log.transcript:
+        background_tasks.add_task(
+            _extract_and_store_outcome, call_log.id, call_log.transcript
+        )
+
     return {"status": "success"}

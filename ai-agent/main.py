@@ -217,18 +217,19 @@ async def entrypoint(ctx: JobContext):
     # Fix #25: Use get_running_loop() — get_event_loop() is deprecated in Python 3.10+
     start_time = asyncio.get_running_loop().time()
 
-    # Fix #26: Wire transcript collection from session events
-    @session.on("user_speech_committed")
-    def on_user_speech(user_msg):
-        text = getattr(user_msg, "content", str(user_msg))
-        if text:
-            my_agent.transcript.append(f"User: {text}")
-
-    @session.on("agent_speech_committed")
-    def on_agent_speech(agent_msg):
-        text = getattr(agent_msg, "content", str(agent_msg))
-        if text:
-            my_agent.transcript.append(f"Agent: {text}")
+    # Transcript collection. The old user_speech_committed /
+    # agent_speech_committed events don't exist in livekit-agents 1.6.x, so
+    # those handlers never fired and every call saved an empty transcript.
+    # This version emits `conversation_item_added` for each committed turn
+    # (including the session.say greeting), carrying a ChatMessage whose
+    # .text_content joins all text parts.
+    @session.on("conversation_item_added")
+    def on_conversation_item(ev):
+        role = getattr(ev.item, "role", None)
+        text = getattr(ev.item, "text_content", None)
+        if role in ("user", "assistant") and text:
+            label = "User" if role == "user" else "Agent"
+            my_agent.transcript.append(f"{label}: {text}")
 
     await session.start(
         room=ctx.room,
