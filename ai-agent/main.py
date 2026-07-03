@@ -82,6 +82,21 @@ async def save_call_log(
         logger.error(f"Failed to save call log: {e}")
 
 
+def _build_greeting(language: str, contact_name: str | None, campaign_name: str | None) -> str:
+    """Localized opening line — spoken directly via TTS before the LLM is involved,
+    so it can't rely on the LLM's language instruction to translate it."""
+    templates = {
+        "en": ("Hi {name}, I am calling about {campaign}.", "Hi, I am calling about {campaign}."),
+        "es": ("Hola {name}, le llamo por {campaign}.", "Hola, le llamo por {campaign}."),
+        "fr": ("Bonjour {name}, je vous appelle au sujet de {campaign}.", "Bonjour, je vous appelle au sujet de {campaign}."),
+        "hi": ("Namaste {name}, main {campaign} ke baare mein baat karne ke liye call kar raha hoon.", "Namaste, main {campaign} ke baare mein baat karne ke liye call kar raha hoon."),
+        "ar": ("مرحباً {name}، أتصل بك بخصوص {campaign}.", "مرحباً، أتصل بك بخصوص {campaign}."),
+    }
+    with_name, without_name = templates.get(language, templates["en"])
+    template = with_name if contact_name else without_name
+    return template.format(name=contact_name, campaign=campaign_name)
+
+
 async def entrypoint(ctx: JobContext):
     logger.info(f"Connecting to room {ctx.room.name}")
     await ctx.connect()
@@ -119,11 +134,31 @@ async def entrypoint(ctx: JobContext):
                 contact_id = rest[1:1 + UUID_LEN]
             logger.info(f"Parsed from room name: campaign_id={campaign_id}, contact_id={contact_id}")
 
-    instructions = "You are a helpful AI assistant. Keep your answers brief."
+    # Appended to every campaign's ai_prompt: this is a live phone call whose
+    # text is spoken by TTS verbatim, so markdown (**bold**) and stage
+    # directions (*pause*) get read aloud as literal punctuation or bloat
+    # reply length, both making speech sound unnatural and slower to start.
+    PHONE_CALL_STYLE = (
+        "\n\nThis is a live phone call. Reply in plain spoken sentences only: "
+        "no markdown, no asterisks, no bullet points, no parenthetical stage "
+        "directions. Keep each reply short (1-3 sentences) and conversational.\n\n"
+        "Talk like a real person on the phone, not a script: use contractions "
+        "(I'm, that's, we'll), start replies with a brief natural acknowledgment "
+        "when it fits (Sure, Got it, Okay), and vary your phrasing instead of "
+        "reusing the same stock lines. Avoid stiff customer-service phrases like "
+        "'That's a good question' or 'I understand your concern.'"
+    )
+
+    instructions = "You are a helpful AI assistant. Keep your answers brief." + PHONE_CALL_STYLE
     voice_id = "qtqlHrXyBpEXHx2JBPgx"
     greeting = "Hello, how can I help you today?"
-    stability = 0.5
+    # Lower stability = more natural pitch/pacing variation (closer to how a
+    # real person talks); pushed too low it gets inconsistent, so 0.35-0.45
+    # is the usual sweet spot. use_speaker_boost fills out the voice so it
+    # doesn't sound thin/synthetic.
+    stability = 0.4
     similarity_boost = 0.75
+    language = "en"
 
     if campaign_id:
         logger.info(f"Fetching campaign config for: {campaign_id}")
@@ -132,32 +167,48 @@ async def entrypoint(ctx: JobContext):
             # ai_prompt already has {{variables}} rendered server-side
             # (see /agent/internal/campaign in the backend) using this
             # contact's custom_fields (e.g. doctor_name, appointment_date).
-            instructions = campaign.get("ai_prompt", instructions)
+            instructions = campaign.get("ai_prompt", instructions) + PHONE_CALL_STYLE
             if campaign.get("ai_voice"):
                 voice_id = campaign.get("ai_voice")
 
             stability = campaign.get("stability", stability)
             similarity_boost = campaign.get("similarity_boost", similarity_boost)
+            language = campaign.get("language") or "en"
 
             contact_name = (campaign.get("variables") or {}).get("name")
-            if contact_name:
-                greeting = f"Hi {contact_name}, I am calling about {campaign.get('campaign_name')}."
-            else:
-                greeting = f"Hi, I am calling about {campaign.get('campaign_name')}."
+            campaign_name = campaign.get("campaign_name")
+            greeting = _build_greeting(language, contact_name, campaign_name)
+
+    # Deepgram's real-time nova-3 model (low-latency, needed for a live call)
+    # only supports a subset of languages directly — "en" and "hi" are on
+    # that list, but "ar" is not, so Arabic falls back to Deepgram's hosted
+    # Whisper model instead. Whisper covers Arabic but isn't a streaming-first
+    # model, so expect higher STT latency on Arabic calls than en/hi calls.
+    LANGUAGE_NAMES = {"en": "English", "hi": "Hindi", "ar": "Arabic", "es": "Spanish", "fr": "French"}
+    language_name = LANGUAGE_NAMES.get(language, "English")
+    instructions += f"\n\nRespond only in {language_name}, regardless of the language used elsewhere in these instructions."
+
+    if language == "ar":
+        stt = deepgram.STT(model="whisper-large")
+    else:
+        stt = deepgram.STT(model="nova-3", language=language)
 
     my_agent = MyAgent(instructions=instructions)
 
     session = AgentSession(
         vad=silero.VAD.load(),
-        stt=deepgram.STT(),
+        stt=stt,
         llm=google.LLM(model="gemini-2.5-flash"),
         tts=elevenlabs.TTS(
-            model="eleven_multilingual_v2",
+            model="eleven_turbo_v2_5",
             voice_id=voice_id,
             api_key=os.getenv("ELEVEN_API_KEY"),
+            encoding="pcm_16000",
+            language=language,
             voice_settings=VoiceSettings(
                 stability=stability,
                 similarity_boost=similarity_boost,
+                use_speaker_boost=True,
             ),
         ),
         allow_interruptions=False,

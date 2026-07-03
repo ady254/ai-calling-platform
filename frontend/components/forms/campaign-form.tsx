@@ -28,7 +28,7 @@ export default function CampaignForm({ initialData, isEdit, campaignId }: Campai
         description: initialData?.description || "",
         objective: initialData?.objective || "",
         language: initialData?.language || "en",
-        ai_voice: initialData?.ai_voice || "alloy",
+        ai_voice: initialData?.ai_voice || "qtqlHrXyBpEXHx2JBPgx",
         ai_prompt: initialData?.ai_prompt || "",
         max_retries: initialData?.max_retries || 2,
         agent_id: initialData?.agent_id || "",
@@ -178,6 +178,8 @@ export default function CampaignForm({ initialData, isEdit, campaignId }: Campai
                             <option value="en">English (US)</option>
                             <option value="es">Spanish</option>
                             <option value="fr">French</option>
+                            <option value="hi">Hindi</option>
+                            <option value="ar">Arabic</option>
                         </select>
                     </div>
 
@@ -189,9 +191,9 @@ export default function CampaignForm({ initialData, isEdit, campaignId }: Campai
                             onChange={handleChange}
                             className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                         >
-                            <option value="alloy">Alloy (Neutral)</option>
-                            <option value="echo">Echo (Warm)</option>
-                            <option value="nova">Nova (Professional)</option>
+                            <option value="qtqlHrXyBpEXHx2JBPgx">Dodo (Neutral)</option>
+                            <option value="hpp4J3VqNfWAUOO0d1Us">Bella (Warm)</option>
+                            <option value="XrExE9yKIg1WjnnlVkGX">Matilda (Professional)</option>
                         </select>
                     </div>
 

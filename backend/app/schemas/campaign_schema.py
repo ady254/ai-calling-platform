@@ -13,7 +13,7 @@ class CampaignCreate(BaseModel):
     objective: Optional[str] = None
     language: str = "en"
     ai_prompt: Optional[str] = None
-    ai_voice: str = "alloy"
+    ai_voice: str = "qtqlHrXyBpEXHx2JBPgx"
     max_retries: int = 2
     scheduled_at: Optional[datetime] = None
     contact_ids: Optional[list[UUID]] = None  # Attach contacts on creation
