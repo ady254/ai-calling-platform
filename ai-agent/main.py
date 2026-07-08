@@ -3,7 +3,8 @@ import logging
 import json
 import aiohttp
 from dotenv import load_dotenv
-from livekit.agents import AgentSession, Agent, JobContext, WorkerOptions, cli, RoomInputOptions
+from livekit.agents import AgentSession, Agent, JobContext, WorkerOptions, cli, TurnHandlingOptions
+from livekit.agents.voice.room_io import RoomOptions
 from livekit.plugins import google, deepgram, silero, elevenlabs
 from livekit.plugins.elevenlabs.tts import VoiceSettings
 import os
@@ -14,6 +15,10 @@ logger = logging.getLogger("voice-agent")
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "dev-internal-key-change-me")
+ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "qtqlHrXyBpEXHx2JBPgx")
+ELEVENLABS_MODEL = os.getenv("ELEVENLABS_MODEL", "eleven_turbo_v2_5")
+ELEVENLABS_STABILITY = float(os.getenv("ELEVENLABS_STABILITY", "0.35"))
+ELEVENLABS_SIMILARITY_BOOST = float(os.getenv("ELEVENLABS_SIMILARITY_BOOST", "0.82"))
 
 
 class MyAgent(Agent):
@@ -150,14 +155,12 @@ async def entrypoint(ctx: JobContext):
     )
 
     instructions = "You are a helpful AI assistant. Keep your answers brief." + PHONE_CALL_STYLE
-    voice_id = "qtqlHrXyBpEXHx2JBPgx"
+    voice_id = ELEVENLABS_VOICE_ID
     greeting = "Hello, how can I help you today?"
-    # Lower stability = more natural pitch/pacing variation (closer to how a
-    # real person talks); pushed too low it gets inconsistent, so 0.35-0.45
-    # is the usual sweet spot. use_speaker_boost fills out the voice so it
-    # doesn't sound thin/synthetic.
-    stability = 0.4
-    similarity_boost = 0.75
+    # These defaults are tuned to sound more natural and less robotic on live
+    # phone calls. They can be overridden per campaign/agent or via env vars.
+    stability = ELEVENLABS_STABILITY
+    similarity_boost = ELEVENLABS_SIMILARITY_BOOST
     language = "en"
 
     if campaign_id:
@@ -200,7 +203,7 @@ async def entrypoint(ctx: JobContext):
         stt=stt,
         llm=google.LLM(model="gemini-2.5-flash"),
         tts=elevenlabs.TTS(
-            model="eleven_turbo_v2_5",
+            model=ELEVENLABS_MODEL,
             voice_id=voice_id,
             api_key=os.getenv("ELEVEN_API_KEY"),
             encoding="pcm_16000",
@@ -231,10 +234,18 @@ async def entrypoint(ctx: JobContext):
             label = "User" if role == "user" else "Agent"
             my_agent.transcript.append(f"{label}: {text}")
 
+    room_options = RoomOptions(
+        input=RoomInputOptions(),
+        turn_handling=TurnHandlingOptions(
+            endpointing={"mode": "fixed", "min_delay": 0.3, "max_delay": 2.0},
+            interruption={"enabled": True, "discard_audio_if_uninterruptible": True},
+        ),
+    )
+
     await session.start(
         room=ctx.room,
         agent=my_agent,
-        room_input_options=RoomInputOptions(),
+        room_options=room_options,
     )
 
     logger.info("Agent joined and is now listening.")
