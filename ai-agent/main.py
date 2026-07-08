@@ -4,7 +4,7 @@ import json
 import aiohttp
 from dotenv import load_dotenv
 from livekit.agents import AgentSession, Agent, JobContext, WorkerOptions, cli, TurnHandlingOptions
-from livekit.agents.voice.room_io import RoomOptions
+from livekit.agents.voice.room_io import RoomInputOptions, RoomOptions
 from livekit.plugins import google, deepgram, silero, elevenlabs
 from livekit.plugins.elevenlabs.tts import VoiceSettings
 import os
@@ -235,7 +235,7 @@ async def entrypoint(ctx: JobContext):
             my_agent.transcript.append(f"{label}: {text}")
 
     room_options = RoomOptions(
-        input=RoomInputOptions(),
+        audio_input=RoomInputOptions(),
         turn_handling=TurnHandlingOptions(
             endpointing={"mode": "fixed", "min_delay": 0.3, "max_delay": 2.0},
             interruption={"enabled": True, "discard_audio_if_uninterruptible": True},
