@@ -215,6 +215,10 @@ async def entrypoint(ctx: JobContext):
             ),
         ),
         allow_interruptions=False,
+        turn_handling=TurnHandlingOptions(
+            endpointing={"mode": "fixed", "min_delay": 0.3, "max_delay": 2.0},
+            interruption={"enabled": True, "discard_audio_if_uninterruptible": True},
+        ),
     )
 
     # Fix #25: Use get_running_loop() — get_event_loop() is deprecated in Python 3.10+
@@ -236,10 +240,6 @@ async def entrypoint(ctx: JobContext):
 
     room_options = RoomOptions(
         audio_input=RoomInputOptions(),
-        turn_handling=TurnHandlingOptions(
-            endpointing={"mode": "fixed", "min_delay": 0.3, "max_delay": 2.0},
-            interruption={"enabled": True, "discard_audio_if_uninterruptible": True},
-        ),
     )
 
     await session.start(
