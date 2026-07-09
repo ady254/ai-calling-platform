@@ -116,7 +116,7 @@ export default function PerformanceChart({ data }: PerformanceChartProps) {
   };
 
   return (
-    <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.02)] flex flex-col justify-between h-full min-h-[380px]">
+    <div className="bg-gradient-to-br from-white via-white to-slate-50/70 rounded-3xl p-6 sm:p-7 border border-slate-200/80 shadow-[0_18px_45px_-20px_rgba(15,23,42,0.28)] ring-1 ring-slate-100/80 flex flex-col justify-between h-full min-h-[380px]">
       
       {/* Header Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">

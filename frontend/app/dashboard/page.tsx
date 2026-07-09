@@ -159,17 +159,24 @@ export default function Dashboard() {
     ? 0 
     : (dataMode === 'api' && realApiData ? realApiData.active_campaigns : 3);
 
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good Morning';
+    if (hour < 18) return 'Good Afternoon';
+    return 'Good Evening';
+  };
+
   return (
-    <div className="w-full space-y-8 pb-10">
+    <div className="w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 space-y-8 pb-10">
       
       {/* Header controls & toggles */}
       <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 pb-6 border-b border-slate-100">
         <div>
-          <h1 className="text-4xl font-semibold text-slate-800 tracking-tight font-sans">
-            Overview
+          <h1 className="text-3xl md:text-4xl font-semibold text-slate-800 tracking-tight font-sans">
+            {getGreeting()}, Adnan 
           </h1>
           <p className="text-slate-500 mt-2 text-sm md:text-base font-medium max-w-2xl">
-            Monitor your AI workforce, campaign performance, business outcomes and revenue generation in real time.
+            Here&apos;s how your AI workforce is performing today.
           </p>
         </div>
 

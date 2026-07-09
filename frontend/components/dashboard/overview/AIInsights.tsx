@@ -25,10 +25,10 @@ export default function AIInsights({ insights }: AIInsightsProps) {
   };
 
   return (
-    <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.02)] flex flex-col h-full min-h-[340px]">
+    <div className="bg-white/90 rounded-2xl p-6 border border-slate-200/70 shadow-[0_10px_30px_-18px_rgba(15,23,42,0.18)] flex flex-col h-full min-h-[340px]">
       <div>
         <h3 className="text-base font-semibold text-slate-800 font-sans tracking-tight">
-          AI Insights
+          Strategic Recommendations
         </h3>
         <p className="text-slate-400 text-xs mt-1 mb-6">
           AI generated recommendations to optimize conversion and reach.

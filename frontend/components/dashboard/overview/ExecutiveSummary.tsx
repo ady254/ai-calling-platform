@@ -29,7 +29,7 @@ export default function ExecutiveSummary({ summary }: ExecutiveSummaryProps) {
   };
 
   return (
-    <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.04)] transition-all duration-300 w-full relative overflow-hidden">
+    <div className="bg-slate-50/70 rounded-3xl p-6 border border-slate-200/70 shadow-[0_8px_24px_-18px_rgba(15,23,42,0.18)] hover:shadow-[0_10px_28px_-18px_rgba(15,23,42,0.22)] transition-all duration-300 w-full relative overflow-hidden">
       {/* Premium accent bar on the left */}
       <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-[#6366f1] to-[#8b5cf6]" />
       

@@ -52,10 +52,10 @@ export default function AIActivityCard({ activity }: AIActivityCardProps) {
   ];
 
   return (
-    <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.02)] flex flex-col justify-between h-full">
+    <div className="bg-white/90 rounded-2xl p-6 border border-slate-200/70 shadow-[0_12px_35px_-18px_rgba(15,23,42,0.2)] flex flex-col justify-between h-full min-h-[320px]">
       <div>
         <h3 className="text-base font-semibold text-slate-800 font-sans tracking-tight mb-5">
-          AI Activity
+          Operational Health
         </h3>
         
         <div className="divide-y divide-slate-100/70">

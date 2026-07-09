@@ -37,14 +37,14 @@ export default function KPICards({ cards }: KPICardsProps) {
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 xl:gap-6">
       {cards.map((card) => {
         if (card.isHero) {
           // Special styling for the Purple Hero Card (Estimated Pipeline)
           return (
             <div
               key={card.id}
-              className="relative overflow-hidden rounded-2xl p-6 bg-gradient-to-br from-[#6366f1] to-[#8b5cf6] text-white shadow-xl shadow-indigo-500/10 hover:shadow-2xl hover:shadow-indigo-500/20 hover:-translate-y-0.5 transition-all duration-300 flex flex-col justify-between min-h-[160px]"
+              className="relative overflow-hidden rounded-3xl p-6 bg-gradient-to-br from-[#6366f1] to-[#8b5cf6] text-white shadow-[0_24px_60px_-24px_rgba(99,102,241,0.65)] ring-1 ring-white/15 hover:shadow-[0_30px_70px_-24px_rgba(99,102,241,0.75)] hover:-translate-y-0.5 transition-all duration-300 flex flex-col justify-between min-h-[168px] md:col-span-2 lg:col-span-2"
             >
               {/* Subtle background glow */}
               <div className="absolute -right-10 -bottom-10 w-32 h-32 bg-white/10 rounded-full blur-2xl pointer-events-none" />
@@ -84,7 +84,7 @@ export default function KPICards({ cards }: KPICardsProps) {
         return (
           <div
             key={card.id}
-            className="rounded-2xl bg-white p-6 border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.06)] hover:-translate-y-0.5 transition-all duration-300 flex flex-col justify-between min-h-[160px]"
+            className="rounded-2xl bg-white/95 p-6 border border-slate-200/70 shadow-[0_12px_35px_-18px_rgba(15,23,42,0.24)] hover:shadow-[0_18px_45px_-20px_rgba(15,23,42,0.28)] hover:-translate-y-0.5 transition-all duration-300 flex flex-col justify-between min-h-[168px]"
           >
             <div className="flex items-start justify-between">
               <div className="flex flex-col gap-1">
