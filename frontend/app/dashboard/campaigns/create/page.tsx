@@ -1,9 +1,9 @@
-import CampaignForm from "@/components/forms/campaign-form";
+import CampaignWizard from "@/components/campaign-builder/CampaignWizard";
 
 export default function CreateCampaignPage() {
     return (
-        <div>
-            <CampaignForm />
+        <div className="py-6">
+            <CampaignWizard />
         </div>
     );
 }
