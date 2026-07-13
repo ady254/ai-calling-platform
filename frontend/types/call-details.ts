@@ -131,6 +131,54 @@ export interface ExecutiveReportData {
   footer: string;
 }
 
+// ── AI Improvement tab ─────────────────────────────────────────────────
+export interface ScoreDimension {
+  id: string;
+  label: string;
+  score: number; // 0-100
+}
+
+export interface EvaluationData {
+  overall: number; // 0-100
+  grade: string; // short qualitative label, e.g. "Strong"
+  summary: string;
+  dimensions: ScoreDimension[];
+}
+
+export type WeaknessSeverity = 'high' | 'medium' | 'low';
+
+export interface PromptWeakness {
+  id: string;
+  title: string;
+  description: string;
+  severity: WeaknessSeverity;
+}
+
+export interface PromptVersion {
+  version: string; // e.g. "v1"
+  label: string; // e.g. "Current"
+  content: string;
+}
+
+export interface PromptComparisonData {
+  current: PromptVersion; // v1
+  suggested: PromptVersion; // v2
+  changes: string[];
+}
+
+export interface ConversionForecastData {
+  currentRate: number; // percent, e.g. 27.4
+  projectedRate: number; // percent, e.g. 34.1
+  basis: string;
+}
+
+export interface AIImprovementData {
+  evaluation: EvaluationData;
+  weaknesses: PromptWeakness[];
+  comparison: PromptComparisonData;
+  forecast: ConversionForecastData;
+}
+
 export interface CallDetailData {
   header: CallHeaderData;
   kpis: CallKPI[];
@@ -145,4 +193,5 @@ export interface CallDetailData {
   coaching: CoachingData;
   knowledge: KnowledgeAnalysisData;
   executiveReport: ExecutiveReportData;
+  improvement: AIImprovementData;
 }

@@ -152,4 +152,72 @@ export const mockCallDetail: CallDetailData = {
     body: 'This conversation resulted in a qualified opportunity with strong buying intent. The customer expressed interest in replacing manual appointment reminders and confirmed budget availability of $1,500/month. AI successfully handled objections and booked a follow-up meeting for Friday. One improvement opportunity is reducing the opening script by approximately 10 seconds to increase engagement.',
     footer: 'Generated automatically by V3 AI',
   },
+
+  improvement: {
+    evaluation: {
+      overall: 86,
+      grade: 'Strong',
+      summary:
+        'A high-quality conversation that booked a meeting. The main opportunities are pacing the opening and holding pricing until after discovery.',
+      dimensions: [
+        { id: 'd-open', label: 'Opening', score: 70 },
+        { id: 'd-disc', label: 'Discovery', score: 88 },
+        { id: 'd-obj', label: 'Objection Handling', score: 84 },
+        { id: 'd-close', label: 'Closing', score: 95 },
+        { id: 'd-comp', label: 'Compliance', score: 96 },
+      ],
+    },
+    weaknesses: [
+      {
+        id: 'w1',
+        title: 'Pricing introduced too early',
+        description: 'Cost was raised before branch count and intent were fully established, weakening negotiating position.',
+        severity: 'medium',
+      },
+      {
+        id: 'w2',
+        title: 'Opening script too long',
+        description: 'The introduction ran ~10 seconds longer than optimal, delaying the customer’s first response.',
+        severity: 'medium',
+      },
+      {
+        id: 'w3',
+        title: 'Integration concern left open',
+        description: 'The customer’s question about integrating with their scheduling system was answered only in general terms.',
+        severity: 'high',
+      },
+      {
+        id: 'w4',
+        title: 'Interrupted the customer once',
+        description: 'The agent began responding before the customer finished describing their manual process.',
+        severity: 'low',
+      },
+    ],
+    comparison: {
+      current: {
+        version: 'v1',
+        label: 'Current',
+        content:
+          'You are an appointment reminder assistant for ABC Hospital. Introduce yourself and the hospital, explain that we help automate appointment reminders, and describe how the system works. Mention pricing early so the customer understands the cost. Confirm the patient’s interest and try to book a follow-up meeting.',
+      },
+      suggested: {
+        version: 'v2',
+        label: 'Suggested',
+        content:
+          'You are an appointment reminder assistant for ABC Hospital. Open with a single-sentence value statement and confirm you are speaking with the right person before qualifying. Ask how many branches they run and how they currently handle reminders before discussing price. Hold pricing until intent and branch count are established, then frame it against recovered appointments. Acknowledge each response fully before replying to avoid interruptions. When a technical concern (e.g. integration) is raised, give a specific answer and offer onboarding confirmation. Once interest is confirmed, offer to send a proposal and book a follow-up.',
+      },
+      changes: [
+        'Moves pricing to after qualification instead of the opening',
+        'Adds an explicit identity-confirmation step',
+        'Shortens the introduction by roughly 10 seconds',
+        'Adds a specific response path for integration questions',
+        'Adds an interruption-avoidance instruction',
+      ],
+    },
+    forecast: {
+      currentRate: 27.4,
+      projectedRate: 34.1,
+      basis: 'Projected from 486 similar conversations in this campaign',
+    },
+  },
 };
