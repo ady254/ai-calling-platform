@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, LayoutGrid, Sparkles } from "lucide-react";
 
 import CallHeader from "@/components/dashboard/call-details/CallHeader";
 import CallKPIs from "@/components/dashboard/call-details/CallKPIs";
@@ -18,16 +18,25 @@ import FollowUpGenerator from "@/components/dashboard/call-details/FollowUpGener
 import ConversationCoaching from "@/components/dashboard/call-details/ConversationCoaching";
 import KnowledgeAnalysis from "@/components/dashboard/call-details/KnowledgeAnalysis";
 import ExecutiveReport from "@/components/dashboard/call-details/ExecutiveReport";
+import AIImprovementTab from "@/components/dashboard/call-details/ai-improvement/AIImprovementTab";
 
 import { CallDetailData } from "@/types/call-details";
 import { mockCallDetail } from "@/utils/mockCallDetail";
 
+type CallTab = "overview" | "improvement";
+
 export default function CallDetailsPage() {
   // Prop-driven: swap `data` for a fetched record when the backend is ready.
   const [data] = useState<CallDetailData>(mockCallDetail);
+  const [tab, setTab] = useState<CallTab>("overview");
 
   const playerRef = useRef<AudioPlayerHandle>(null);
   const [currentTime, setCurrentTime] = useState(0);
+
+  const goToImprovement = () => {
+    setTab("improvement");
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   const handleSeek = (seconds: number) => playerRef.current?.seek(seconds);
 
@@ -113,54 +122,86 @@ export default function CallDetailsPage() {
         onShare={handleShare}
       />
 
-      {/* Top KPI row */}
-      <CallKPIs cards={data.kpis} />
+      {/* Tabs — Overview | AI Improvement */}
+      <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/50 w-full sm:w-auto sm:inline-flex">
+        <button
+          onClick={() => setTab("overview")}
+          className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2 text-sm font-semibold rounded-lg transition-all duration-200 ${
+            tab === "overview" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <LayoutGrid className="w-4 h-4" />
+          Overview
+        </button>
+        <button
+          onClick={() => setTab("improvement")}
+          className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2 text-sm font-semibold rounded-lg transition-all duration-200 ${
+            tab === "improvement" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <Sparkles className="w-4 h-4" />
+          AI Improvement
+        </button>
+      </div>
 
-      {/* Section 2 — Player + Summary (60) / Intelligence (40) */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <div className="lg:col-span-3 space-y-6">
-          <AudioPlayer ref={playerRef} recording={data.recording} onTimeUpdate={setCurrentTime} />
-          <AISummary points={data.summary} />
+      {tab === "overview" ? (
+        <div className="space-y-6">
+          {/* Top KPI row */}
+          <CallKPIs cards={data.kpis} />
+
+          {/* Section 2 — Player + Summary (60) / Intelligence (40) */}
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+            <div className="lg:col-span-3 space-y-6">
+              <AudioPlayer ref={playerRef} recording={data.recording} onTimeUpdate={setCurrentTime} />
+              <AISummary points={data.summary} />
+            </div>
+            <div className="lg:col-span-2">
+              <ConversationInsights metrics={data.intelligence} />
+            </div>
+          </div>
+
+          {/* Section 3 — Transcript */}
+          <TranscriptViewer segments={data.transcript} currentTime={currentTime} onSeek={handleSeek} />
+
+          {/* Section 4 — Business Analysis */}
+          <BusinessAnalysis items={data.businessAnalysis} />
+
+          {/* Section 5 — Extracted Information */}
+          <ExtractedInformation fields={data.extracted} />
+
+          {/* Section 6 + 7 — Next Actions / Follow-up Generator */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <NextActions
+              actions={data.nextActions}
+              onAssign={() => toast("Assign to teammate…")}
+              onSchedule={() => toast("Schedule action…")}
+            />
+            <FollowUpGenerator
+              data={data.followUp}
+              onRegenerate={() => toast("Regenerating message…")}
+              onSendLater={() => toast.success("Scheduled to send later")}
+            />
+          </div>
+
+          {/* Section 8 + 9 — Coaching / Knowledge Analysis */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <ConversationCoaching data={data.coaching} onCreateImprovedPrompt={goToImprovement} />
+            <KnowledgeAnalysis data={data.knowledge} onUpdate={() => toast.success("Knowledge base updated")} />
+          </div>
+
+          {/* Bottom — Executive Conversation Report */}
+          <ExecutiveReport report={data.executiveReport} />
         </div>
-        <div className="lg:col-span-2">
-          <ConversationInsights metrics={data.intelligence} />
-        </div>
-      </div>
-
-      {/* Section 3 — Transcript */}
-      <TranscriptViewer segments={data.transcript} currentTime={currentTime} onSeek={handleSeek} />
-
-      {/* Section 4 — Business Analysis */}
-      <BusinessAnalysis items={data.businessAnalysis} />
-
-      {/* Section 5 — Extracted Information */}
-      <ExtractedInformation fields={data.extracted} />
-
-      {/* Section 6 + 7 — Next Actions / Follow-up Generator */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <NextActions
-          actions={data.nextActions}
-          onAssign={() => toast("Assign to teammate…")}
-          onSchedule={() => toast("Schedule action…")}
+      ) : (
+        <AIImprovementTab
+          improvement={data.improvement}
+          knowledge={data.knowledge}
+          target={data.header.campaign}
+          onDeploy={() => toast.success("Prompt v2 deployed to future calls")}
+          onUpdateKnowledge={() => toast.success("Knowledge base updated")}
+          onCopySuggested={() => toast.success("Suggested prompt copied")}
         />
-        <FollowUpGenerator
-          data={data.followUp}
-          onRegenerate={() => toast("Regenerating message…")}
-          onSendLater={() => toast.success("Scheduled to send later")}
-        />
-      </div>
-
-      {/* Section 8 + 9 — Coaching / Knowledge Analysis */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <ConversationCoaching
-          data={data.coaching}
-          onCreateImprovedPrompt={() => toast.success("Improved prompt drafted")}
-        />
-        <KnowledgeAnalysis data={data.knowledge} onUpdate={() => toast.success("Knowledge base updated")} />
-      </div>
-
-      {/* Bottom — Executive Conversation Report */}
-      <ExecutiveReport report={data.executiveReport} />
+      )}
     </div>
   );
 }
