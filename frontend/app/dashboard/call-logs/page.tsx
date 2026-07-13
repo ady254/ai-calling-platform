@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { FileText, CheckCircle, XCircle, RefreshCw } from "lucide-react";
+import { FileText, CheckCircle, XCircle, RefreshCw, Sparkles } from "lucide-react";
 import { api } from "@/services/api";
 
 interface CallLog {
@@ -60,9 +60,18 @@ export default function CallLogsPage() {
 
     return (
         <div className="w-full">
-            <header className="mb-8">
-                <h1 className="text-3xl font-semibold text-slate-800 tracking-tight">Call History</h1>
-                <p className="text-slate-500 mt-2">View logs, outcomes and transcripts of all past AI calls.</p>
+            <header className="mb-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+                <div>
+                    <h1 className="text-3xl font-semibold text-slate-800 tracking-tight">Call History</h1>
+                    <p className="text-slate-500 mt-2">View logs, outcomes and transcripts of all past AI calls.</p>
+                </div>
+                <Link
+                    href="/dashboard/call-logs/sample"
+                    className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl bg-white text-slate-700 border border-slate-200/80 hover:bg-slate-50 hover:border-slate-300 transition-all self-start sm:self-auto"
+                >
+                    <Sparkles className="w-4 h-4 text-indigo-500" />
+                    View Sample Intelligence
+                </Link>
             </header>
 
             <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
@@ -96,7 +105,15 @@ export default function CallLogsPage() {
                             </tr>
                         ) : logs.length === 0 ? (
                             <tr>
-                                <td colSpan={5} className="py-8 text-center text-slate-400">No call logs found.</td>
+                                <td colSpan={5} className="py-10 text-center">
+                                    <p className="text-slate-400 mb-3">No call logs found.</p>
+                                    <Link
+                                        href="/dashboard/call-logs/sample"
+                                        className="inline-flex items-center gap-2 text-indigo-600 hover:text-indigo-800 text-sm font-semibold transition-colors"
+                                    >
+                                        <Sparkles className="w-4 h-4" /> Preview sample call intelligence
+                                    </Link>
+                                </td>
                             </tr>
                         ) : (
                             logs.map((log) => (
