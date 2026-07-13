@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
     Play, Plus, Trash2, Users, Pause, Square,
-    Loader2, CheckCircle, XCircle, Clock, PhoneCall, Edit, Copy
+    Loader2, CheckCircle, XCircle, Clock, PhoneCall, Edit, Copy, ArrowRight
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -211,6 +211,15 @@ export default function CampaignsPage() {
                                             {new Date(campaign.created_at).toLocaleDateString()}
                                         </div>
                                     </div>
+
+                                    {/* View Details — entry point to the campaign dashboard */}
+                                    <Link
+                                        href={`/dashboard/campaigns/${campaign.id}`}
+                                        className="flex items-center justify-center gap-1.5 w-full mb-3 py-2.5 text-sm font-semibold text-indigo-600 bg-indigo-50/60 hover:bg-indigo-50 border border-indigo-100/70 rounded-xl transition-colors group"
+                                    >
+                                        View Details
+                                        <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                                    </Link>
 
                                     <div className="flex gap-2">
                                         {/* Start / Resume button */}

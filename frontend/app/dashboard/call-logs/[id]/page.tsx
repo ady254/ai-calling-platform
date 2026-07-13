@@ -31,6 +31,69 @@ export default function CallDetailsPage() {
 
   const handleSeek = (seconds: number) => playerRef.current?.seek(seconds);
 
+  const fmtTs = (t: number) => {
+    const m = Math.floor(t / 60);
+    const s = Math.floor(t % 60);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
+  // Build a formatted transcript file from the call data (no backend needed).
+  const handleDownloadTranscript = () => {
+    const { header, transcript, summary } = data;
+    const lines: string[] = [
+      `Call Transcript — ${header.customerName} (${header.company})`,
+      `Campaign: ${header.campaign}`,
+      `Phone: ${header.phone}`,
+      `Date: ${new Date(header.date).toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" })}  ·  Duration: ${header.durationLabel}  ·  Status: ${header.status}`,
+      "",
+      "──────────────────────────────",
+      "TRANSCRIPT",
+      "──────────────────────────────",
+    ];
+
+    if (transcript && transcript.length > 0) {
+      transcript.forEach((seg) => {
+        const who = seg.speaker === "ai" ? "AI Agent" : "Customer";
+        lines.push(`[${fmtTs(seg.timestamp)}] ${who}: ${seg.text}`);
+      });
+    } else {
+      lines.push("Transcript processing…");
+    }
+
+    if (summary && summary.length > 0) {
+      lines.push("", "──────────────────────────────", "AI SUMMARY", "──────────────────────────────");
+      summary.forEach((point) => lines.push(`• ${point}`));
+    }
+
+    lines.push("", "Generated automatically by V3 AI");
+
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `transcript-${header.customerName.replace(/\s+/g, "-").toLowerCase()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success("Transcript downloaded");
+  };
+
+  const handleShare = async () => {
+    const url = typeof window !== "undefined" ? window.location.href : "";
+    const title = `Call with ${data.header.customerName} — ${data.header.company}`;
+    try {
+      if (typeof navigator !== "undefined" && navigator.share) {
+        await navigator.share({ title, url });
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+      toast.success("Share link copied");
+    } catch {
+      /* share cancelled or clipboard unavailable */
+    }
+  };
+
   return (
     <div className="w-full max-w-[1600px] mx-auto space-y-6 pb-12">
       {/* Breadcrumb */}
@@ -46,8 +109,8 @@ export default function CallDetailsPage() {
       <CallHeader
         data={data.header}
         onReplay={() => playerRef.current?.play()}
-        onDownload={() => toast.success("Transcript download started")}
-        onShare={() => toast.success("Share link copied")}
+        onDownload={handleDownloadTranscript}
+        onShare={handleShare}
       />
 
       {/* Top KPI row */}
