@@ -148,7 +148,13 @@ export default function CampaignsPage() {
                                 )}
 
                                 <div className="flex justify-between items-start mb-3">
-                                    <h3 className="text-lg font-bold text-slate-800 truncate pr-4">{campaign.name}</h3>
+                                    <Link
+                                        href={`/dashboard/campaigns/${campaign.id}`}
+                                        className="text-lg font-bold text-slate-800 truncate pr-4 hover:text-indigo-600 transition-colors"
+                                        title="View campaign details"
+                                    >
+                                        {campaign.name}
+                                    </Link>
                                     <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full uppercase tracking-wider ${statusConfig.color} ${statusConfig.pulse ? 'animate-pulse' : ''}`}>
                                         <StatusIcon className="w-3 h-3" />
                                         {campaign.status}
