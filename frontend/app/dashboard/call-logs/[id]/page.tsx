@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { ChevronLeft, LayoutGrid, Sparkles } from "lucide-react";
@@ -22,16 +23,61 @@ import AIImprovementTab from "@/components/dashboard/call-details/ai-improvement
 
 import { CallDetailData } from "@/types/call-details";
 import { mockCallDetail } from "@/utils/mockCallDetail";
+import { getCallDetail, CallDetailResponse } from "@/services/call-detail-service";
 
 type CallTab = "overview" | "improvement";
 
+// Merge the real fields the backend can derive onto the mock. Header, KPIs,
+// intelligence, recording, summary and transcript become real (including nulls
+// that drive the empty states); the AI-enriched sections stay mock for now.
+function mergeCallDetail(base: CallDetailData, r: CallDetailResponse): CallDetailData {
+  return {
+    ...base,
+    header: {
+      ...base.header,
+      customerName: r.header.customerName,
+      company: r.header.company,
+      phone: r.header.phone,
+      campaign: r.header.campaign,
+      status: (r.header.status as CallDetailData["header"]["status"]) || base.header.status,
+      durationLabel: r.header.durationLabel,
+      date: r.header.date ?? base.header.date,
+    },
+    kpis: r.kpis as CallDetailData["kpis"],
+    intelligence: r.intelligence as CallDetailData["intelligence"],
+    recording: r.recording as CallDetailData["recording"],
+    summary: r.summary,
+    transcript: r.transcript as CallDetailData["transcript"],
+  };
+}
+
 export default function CallDetailsPage() {
-  // Prop-driven: swap `data` for a fetched record when the backend is ready.
-  const [data] = useState<CallDetailData>(mockCallDetail);
+  const params = useParams();
+  const callId = params.id as string;
+
+  // Defaults to the high-fidelity mock; a real call id fetches and merges.
+  const [data, setData] = useState<CallDetailData>(mockCallDetail);
   const [tab, setTab] = useState<CallTab>("overview");
 
   const playerRef = useRef<AudioPlayerHandle>(null);
   const [currentTime, setCurrentTime] = useState(0);
+
+  // Load real call data unless we're viewing the sample. Falls back to mock.
+  useEffect(() => {
+    if (!callId || callId === "sample") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getCallDetail(callId);
+        if (!cancelled) setData((prev) => mergeCallDetail(prev, res.data));
+      } catch {
+        /* backend not ready or call not found — keep mock */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [callId]);
 
   const goToImprovement = () => {
     setTab("improvement");

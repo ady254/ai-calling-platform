@@ -638,6 +638,133 @@ async def get_call_logs(
     return result.scalars().all()
 
 
+# ── Call Details ──────────────────────────────────────────────────────
+_CALL_STATUS_MAP = {"completed": "completed", "failed": "failed", "started": "in-progress"}
+
+
+def _sentiment_tone(s) -> str:
+    s = (s or "").lower()
+    if s == "positive":
+        return "positive"
+    if s == "negative":
+        return "negative"
+    return "neutral"
+
+
+@router.get("/logs/{log_id}")
+async def get_call_detail(
+    log_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+):
+    """Real Call Details for a single call — header, transcript, summary, and
+    the KPIs/intelligence derivable from stored data. AI-enriched sections
+    (business analysis, coaching, AI improvement) come from a later step."""
+    business = await get_user_business(db, user_id)
+
+    log = (await db.execute(
+        select(CallLog).filter(CallLog.id == log_id, CallLog.business_id == business.id)
+    )).scalar_one_or_none()
+    if not log:
+        raise HTTPException(status_code=404, detail="Call not found")
+
+    contact = None
+    if log.contact_id:
+        contact = (await db.execute(
+            select(Contact).filter(Contact.id == log.contact_id)
+        )).scalar_one_or_none()
+    campaign = None
+    if log.campaign_id:
+        campaign = (await db.execute(
+            select(Campaign).filter(Campaign.id == log.campaign_id)
+        )).scalar_one_or_none()
+
+    insights = (contact.ai_insights or {}) if contact else {}
+    lead_score = contact.lead_score if contact else None
+    sentiment = insights.get("sentiment", "Neutral")
+    buying_intent = insights.get("buying_intent", "Medium")
+    decision_maker = insights.get("decision_maker", "Unknown")
+    conv_prob = insights.get("conversion_probability")
+
+    if log.outcome == "confirmed":
+        appointment = "Booked"
+    elif log.outcome == "rescheduled":
+        appointment = "Rescheduled"
+    else:
+        appointment = "Not booked"
+    next_action = log.follow_up or "—"
+
+    status = _CALL_STATUS_MAP.get(log.status, "completed")
+    if log.outcome == "wrong_person":
+        status = "no-answer"
+    elif log.outcome == "incomplete" and log.status != "completed":
+        status = "voicemail"
+
+    # Summary → bullet points
+    summary = None
+    if log.summary:
+        s = log.summary.strip()
+        pts = [seg.strip() for seg in s.split(". ") if seg.strip()]
+        summary = [seg if seg.endswith((".", "!", "?")) else seg + "." for seg in pts] or [s]
+
+    # Transcript → chat-style segments (timestamps distributed across duration)
+    transcript = None
+    if log.transcript:
+        lines = [ln.strip() for ln in log.transcript.splitlines() if ln.strip()]
+        dur = int(log.duration or 0)
+        n = len(lines)
+        segs = []
+        for i, ln in enumerate(lines):
+            low = ln.lower()
+            if low.startswith(("agent:", "ai:", "assistant:")):
+                speaker, text = "ai", ln.split(":", 1)[1].strip()
+            elif low.startswith(("user:", "customer:", "caller:")):
+                speaker, text = "customer", ln.split(":", 1)[1].strip()
+            else:
+                speaker, text = "ai", ln
+            ts = round(i * dur / n) if n > 0 else 0
+            segs.append({"id": f"s{i}", "speaker": speaker, "timestamp": ts, "text": text, "tags": []})
+        transcript = segs or None
+
+    recording = {"url": None, "durationSeconds": int(log.duration or 0)} if (log.duration or 0) > 0 else None
+
+    kpis = [
+        {"id": "lead-score", "label": "Lead Score", "value": f"{lead_score} / 100" if lead_score is not None else "—", "hint": "Contact score", "tone": "accent", "icon": "lead-score"},
+        {"id": "buying-intent", "label": "Buying Intent", "value": buying_intent, "tone": "positive" if buying_intent == "High" else "neutral", "icon": "buying-intent"},
+        {"id": "sentiment", "label": "Sentiment", "value": sentiment, "tone": _sentiment_tone(sentiment), "icon": "sentiment"},
+        {"id": "decision-maker", "label": "Decision Maker", "value": decision_maker, "tone": "neutral", "icon": "decision-maker"},
+        {"id": "appointment", "label": "Appointment", "value": appointment, "tone": "positive" if appointment == "Booked" else "neutral", "icon": "appointment"},
+        {"id": "next-action", "label": "Next Action", "value": next_action[:40], "tone": "neutral", "icon": "next-action"},
+    ]
+
+    intelligence = [
+        {"id": "i-lead", "label": "Lead Score", "value": str(lead_score) if lead_score is not None else "—", "tone": "accent", "progress": lead_score},
+        {"id": "i-intent", "label": "Buying Intent", "value": buying_intent, "tone": "positive" if buying_intent == "High" else "neutral"},
+        {"id": "i-budget", "label": "Estimated Budget", "value": insights.get("estimated_budget", "—"), "tone": "neutral"},
+        {"id": "i-dm", "label": "Decision Maker", "value": decision_maker, "tone": "neutral"},
+        {"id": "i-timeline", "label": "Expected Closing", "value": insights.get("closing_timeline", "—"), "tone": "neutral"},
+        {"id": "i-risk", "label": "Risk Level", "value": insights.get("risk_level", "—"), "tone": "neutral"},
+        {"id": "i-quality", "label": "Conversation Quality", "value": f"{conv_prob}%" if conv_prob is not None else "—", "tone": "accent", "progress": conv_prob},
+    ]
+
+    return {
+        "header": {
+            "customerName": contact.name if contact else "Unknown Contact",
+            "company": (contact.company if contact else "") or "—",
+            "phone": (contact.phone_number if contact else "") or "—",
+            "campaign": campaign.name if campaign else "—",
+            "status": status,
+            "durationLabel": _fmt_duration(log.duration),
+            "date": log.created_at.isoformat() if log.created_at else None,
+        },
+        "kpis": kpis,
+        "intelligence": intelligence,
+        "recording": recording,
+        "summary": summary,
+        "transcript": transcript,
+    }
+
+
 @router.get("/analytics", response_model=AnalyticsOut)
 async def get_analytics(
     db: AsyncSession = Depends(get_db),
