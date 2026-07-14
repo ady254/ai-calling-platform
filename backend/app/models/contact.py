@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, DateTime, Text, Enum as SAEnum
+from sqlalchemy import Column, String, ForeignKey, DateTime, Text, Integer, Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 import uuid
@@ -45,6 +45,20 @@ class Contact(Base):
         default=ContactStatus.NEW,
         nullable=False,
     )
+
+    # ── CRM fields ────────────────────────────────────────────────────
+    # Kept as first-class columns because the CRM table filters/sorts on
+    # them. `pipeline_stage` is the sales funnel axis (new → won/lost),
+    # separate from `status` (per-call disposition used by the executor).
+    industry = Column(String(120), nullable=True)
+    lead_score = Column(Integer, nullable=True, index=True)  # 0-100 (AI + rules)
+    pipeline_stage = Column(String(20), nullable=False, server_default="new", index=True)
+
+    # Display-only AI output — evolves without a migration. Shape:
+    # {"sentiment": "Positive", "conversion_probability": 82,
+    #  "buying_intent": "High", "score_reason": "...",
+    #  "recommendations": [...], "assigned_agent": "...", "next_follow_up": "..."}
+    ai_insights = Column(JSONB, nullable=False, server_default="{}")
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

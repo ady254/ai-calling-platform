@@ -27,6 +27,9 @@ async def create_contact(
         # PostgreSQL ARRAY or JSONB column, or a separate tags junction table.
         tags=data.tags,
         notes=data.notes,
+        industry=getattr(data, "industry", None),
+        lead_score=getattr(data, "lead_score", None),
+        pipeline_stage=(getattr(data, "pipeline_stage", None) or "new"),
         custom_fields=data.custom_fields or {},
         status=ContactStatus.NEW,
     )

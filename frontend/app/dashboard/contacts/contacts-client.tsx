@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { SlidersHorizontal, Users, Upload, Plus } from "lucide-react";
 
@@ -12,9 +12,11 @@ import FilterSidebar from "@/components/dashboard/contacts/FilterSidebar";
 import ContactsTable, { QuickAction } from "@/components/dashboard/contacts/ContactsTable";
 import BulkActionBar, { BulkAction } from "@/components/dashboard/contacts/BulkActionBar";
 import ContactDrawer from "@/components/dashboard/contacts/ContactDrawer";
+import AddContactModal, { ContactFormData } from "@/components/dashboard/contacts/AddContactModal";
 
-import { CRMContact, ContactFilters, EMPTY_FILTERS } from "@/types/contacts-crm";
+import { CRMContact, ContactKPI, PipelineStage, ContactFilters, EMPTY_FILTERS } from "@/types/contacts-crm";
 import { mockContactsData } from "@/utils/mockContacts";
+import { getCRMContacts, getContactKPIs, getContactPipeline, createContactApi } from "@/services/contacts-crm-service";
 
 type MultiGroup = "statuses" | "scoreRanges" | "industries" | "tags";
 
@@ -108,13 +110,37 @@ function buildSearchPredicates(query: string): ((c: CRMContact) => boolean)[] {
 }
 
 export default function ContactsPageClient() {
-  const data = mockContactsData;
-  const [contacts, setContacts] = useState<CRMContact[]>(data.contacts);
+  const filterConfig = mockContactsData.filterConfig;
+  const [contacts, setContacts] = useState<CRMContact[]>(mockContactsData.contacts);
+  const [kpis, setKpis] = useState<ContactKPI[]>(mockContactsData.kpis);
+  const [pipeline, setPipeline] = useState<PipelineStage[]>(mockContactsData.pipeline);
   const [filters, setFilters] = useState<ContactFilters>(EMPTY_FILTERS);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [drawerContact, setDrawerContact] = useState<CRMContact | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingContact, setEditingContact] = useState<CRMContact | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load real CRM data when the backend is ready; otherwise keep mock so the
+  // page always renders. (See services/contacts-crm-service.ts + backend.)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [c, k, p] = await Promise.all([getCRMContacts(), getContactKPIs(), getContactPipeline()]);
+        if (cancelled) return;
+        if (Array.isArray(c) && c.length > 0) setContacts(c);
+        if (Array.isArray(k) && k.length > 0) setKpis(k);
+        if (Array.isArray(p) && p.length > 0) setPipeline(p);
+      } catch {
+        /* backend not ready — keep mock data */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const activeStage = filters.statuses.length === 1 ? filters.statuses[0] : null;
 
@@ -166,7 +192,8 @@ export default function ContactsPageClient() {
         setDrawerContact(contact);
         break;
       case "edit":
-        toast(`Edit ${contact.name}`);
+        setEditingContact(contact);
+        setModalOpen(true);
         break;
       case "delete":
         toast(`Delete ${contact.name}?`, {
@@ -216,6 +243,84 @@ export default function ContactsPageClient() {
     if (e.target) e.target.value = "";
   };
 
+  const openAddModal = () => {
+    setEditingContact(null);
+    setModalOpen(true);
+  };
+
+  const handleSaveContact = async (form: ContactFormData) => {
+    const tags = form.tags
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+    if (editingContact) {
+      // Update in place
+      setContacts((cs) =>
+        cs.map((c) =>
+          c.id === editingContact.id
+            ? {
+                ...c,
+                name: form.name.trim(),
+                phone: form.phone.trim(),
+                email: form.email.trim(),
+                company: form.company.trim(),
+                industry: form.industry || c.industry,
+                status: (form.status as CRMContact["status"]) || c.status,
+                leadScore: form.leadScore,
+                tags,
+              }
+            : c
+        )
+      );
+      toast.success("Contact updated");
+    } else {
+      // Create a new CRM contact locally with sensible defaults
+      const newContact: CRMContact = {
+        id: (typeof crypto !== "undefined" && crypto.randomUUID?.()) || `c-${Date.now()}`,
+        name: form.name.trim(),
+        company: form.company.trim(),
+        phone: form.phone.trim(),
+        email: form.email.trim(),
+        industry: form.industry || "—",
+        leadScore: form.leadScore,
+        status: (form.status as CRMContact["status"]) || "new",
+        lastContact: null,
+        assignedAgent: "Unassigned",
+        nextAction: "First call",
+        tags,
+        assignedCampaign: "Unassigned",
+        lastCallSummary: "No calls yet.",
+        sentiment: "Neutral",
+        nextFollowUp: "Not scheduled",
+        notes: [],
+        conversionProbability: form.leadScore,
+        aiRecommendations: ["New contact — no history yet.", "Recommend an introductory call."],
+      };
+      setContacts((cs) => [newContact, ...cs]);
+      toast.success("Contact added");
+
+      // Best-effort persistence — page works whether or not the backend is up.
+      try {
+        await createContactApi({
+          name: newContact.name,
+          phone_number: newContact.phone,
+          email: newContact.email || undefined,
+          company: newContact.company || undefined,
+          tags: tags.join(", ") || undefined,
+          industry: form.industry || undefined,
+          lead_score: form.leadScore,
+          pipeline_stage: newContact.status,
+        });
+      } catch {
+        /* backend not ready — contact remains in the local list */
+      }
+    }
+
+    setModalOpen(false);
+    setEditingContact(null);
+  };
+
   const activeFilterCount =
     filters.statuses.length +
     filters.scoreRanges.length +
@@ -230,15 +335,15 @@ export default function ContactsPageClient() {
       <ContactsHeader
         onImport={() => fileInputRef.current?.click()}
         onExport={() => toast.success("Exporting contacts…")}
-        onAdd={() => toast("Add a new contact")}
+        onAdd={openAddModal}
       />
 
       {contacts.length === 0 ? (
-        <EmptyState onImport={() => fileInputRef.current?.click()} onAdd={() => toast("Add a new contact")} />
+        <EmptyState onImport={() => fileInputRef.current?.click()} onAdd={openAddModal} />
       ) : (
         <>
-          <ContactsKPIs cards={data.kpis} />
-          <PipelineOverview stages={data.pipeline} activeStage={activeStage} onSelect={selectStage} />
+          <ContactsKPIs cards={kpis} />
+          <PipelineOverview stages={pipeline} activeStage={activeStage} onSelect={selectStage} />
           <SearchBar value={filters.search} onChange={setSearch} />
 
           <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6 items-start">
@@ -260,7 +365,7 @@ export default function ContactsPageClient() {
               </button>
               <div className={`${filtersOpen ? "block" : "hidden"} lg:block lg:sticky lg:top-6`}>
                 <FilterSidebar
-                  config={data.filterConfig}
+                  config={filterConfig}
                   filters={filters}
                   onToggleMulti={toggleMulti}
                   onSetLastContacted={setLastContacted}
@@ -312,6 +417,18 @@ export default function ContactsPageClient() {
         onStartCall={(c) => toast.success(`Calling ${c.name}…`)}
         onOpenConversation={() => toast("Opening conversation…")}
         onScheduleFollowUp={(c) => toast(`Schedule a follow-up with ${c.name}`)}
+      />
+
+      <AddContactModal
+        open={modalOpen}
+        initial={editingContact}
+        industries={filterConfig.industries}
+        statuses={filterConfig.statuses}
+        onClose={() => {
+          setModalOpen(false);
+          setEditingContact(null);
+        }}
+        onSave={handleSaveContact}
       />
     </div>
   );
