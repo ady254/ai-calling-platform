@@ -140,6 +140,185 @@ async def campaign_progress(
     return progress
 
 
+# ── Campaign Details analytics ────────────────────────────────────────
+# Real per-campaign business intelligence computed from call logs + the
+# campaign's contacts, in the exact shape the Campaign Details page needs.
+
+_OUTCOME_TO_RECENT = {
+    "confirmed": "Appointment",
+    "rescheduled": "Callback",
+    "callback_requested": "Callback",
+    "not_interested": "Not Interested",
+    "do_not_call": "Not Interested",
+    "wrong_person": "No Answer",
+    "incomplete": "Voicemail",
+    "other": "Qualified",
+}
+
+_CAMPAIGN_STATUS_TO_RUN = {
+    "active": "running",
+    "paused": "paused",
+    "scheduled": "scheduled",
+    "completed": "completed",
+    "draft": "draft",
+    "cancelled": "cancelled",
+}
+
+
+def _fmt_duration(seconds) -> str:
+    s = int(seconds or 0)
+    return f"{s // 60}m {s % 60:02d}s"
+
+
+def _relative_time(dt) -> str:
+    if not dt:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    mins = int((datetime.now(timezone.utc) - dt).total_seconds() // 60)
+    if mins < 1:
+        return "just now"
+    if mins < 60:
+        return f"{mins} min ago"
+    hrs = mins // 60
+    if hrs < 24:
+        return f"{hrs}h ago"
+    return f"{hrs // 24}d ago"
+
+
+@router.get("/campaign/{campaign_id}/analytics")
+async def campaign_analytics(
+    campaign_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+):
+    """Real per-campaign analytics for the Campaign Details page: KPIs,
+    funnel, progress, recent calls and timeline computed from call logs."""
+    business = await get_user_business(db, user_id)
+
+    campaign = (await db.execute(
+        select(Campaign).filter(Campaign.id == campaign_id, Campaign.business_id == business.id)
+    )).scalar_one_or_none()
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    progress = await get_campaign_progress(db, campaign_id) or {}
+    total_contacts = progress.get("total_contacts", 0)
+    completed = progress.get("completed", 0)
+    failed = progress.get("failed", 0)
+    calling = progress.get("calling", 0)
+    pending = progress.get("pending", 0)
+
+    logs = (await db.execute(
+        select(CallLog)
+        .where(CallLog.campaign_id == campaign_id)
+        .order_by(CallLog.created_at.desc())
+    )).scalars().all()
+
+    outcome_counts: dict[str, int] = {}
+    for log in logs:
+        if log.outcome:
+            outcome_counts[log.outcome] = outcome_counts.get(log.outcome, 0) + 1
+    appointments = outcome_counts.get("confirmed", 0)
+    interested = (
+        appointments
+        + outcome_counts.get("rescheduled", 0)
+        + outcome_counts.get("callback_requested", 0)
+    )
+
+    contacts = (await db.execute(
+        select(Contact)
+        .join(CampaignContact, CampaignContact.contact_id == Contact.id)
+        .where(CampaignContact.campaign_id == campaign_id)
+    )).scalars().all()
+    qualified = sum(1 for c in contacts if (c.lead_score or 0) >= 75)
+    converted = sum(1 for c in contacts if c.pipeline_stage == "won")
+    contacts_by_id = {str(c.id): c for c in contacts}
+
+    answered = completed
+    conversion_rate = round(qualified / answered * 100, 1) if answered > 0 else 0.0
+    success_rate = round(completed / (completed + failed) * 100) if (completed + failed) > 0 else 0
+    est_pipeline = appointments * 4000  # estimate — no revenue tracking yet
+
+    kpis = [
+        {"id": "calls-completed", "title": "Calls Completed", "value": completed, "subLabel": "Total answered", "changeType": "positive", "icon": "calls-completed"},
+        {"id": "calls-in-progress", "title": "Calls In Progress", "value": calling, "subLabel": "Currently active", "changeType": "neutral", "icon": "in-progress"},
+        {"id": "qualified-leads", "title": "Qualified Leads", "value": qualified, "subLabel": "Lead Score >75", "changeType": "neutral", "icon": "qualified"},
+        {"id": "appointments-booked", "title": "Appointments Booked", "value": appointments, "subLabel": "Confirmed", "changeType": "neutral", "icon": "appointments"},
+        {"id": "conversion-rate", "title": "Conversion Rate", "value": f"{conversion_rate}%", "subLabel": "Answered → Qualified", "changeType": "neutral", "icon": "conversion"},
+        {"id": "estimated-pipeline", "title": "Estimated Pipeline", "value": f"${est_pipeline:,}", "subLabel": "Generated opportunities", "changeType": "positive", "icon": "pipeline", "isHero": True},
+    ]
+
+    funnel = [
+        {"id": "uploaded", "label": "Uploaded", "value": total_contacts},
+        {"id": "answered", "label": "Answered", "value": answered},
+        {"id": "interested", "label": "Interested", "value": interested},
+        {"id": "qualified", "label": "Qualified", "value": qualified},
+        {"id": "appointments", "label": "Appointments", "value": appointments},
+        {"id": "converted", "label": "Converted", "value": converted},
+    ]
+
+    recent_calls = []
+    for log in logs[:8]:
+        c = contacts_by_id.get(str(log.contact_id))
+        insights = (c.ai_insights or {}) if c else {}
+        recent_calls.append({
+            "id": str(log.id),
+            "customer": c.name if c else "Unknown",
+            "duration": _fmt_duration(log.duration),
+            "outcome": _OUTCOME_TO_RECENT.get(log.outcome, "Qualified") if log.outcome else "Voicemail",
+            "leadScore": (c.lead_score if c else 0) or 0,
+            "sentiment": insights.get("sentiment", "Neutral"),
+            "nextAction": log.follow_up or "Follow-up",
+        })
+
+    timeline = []
+    for log in logs[:6]:
+        if log.outcome == "confirmed":
+            title, ttype = "Appointment booked", "success"
+        elif log.outcome in ("callback_requested", "rescheduled"):
+            title, ttype = "Customer requested callback", "warning"
+        elif log.status == "completed":
+            title, ttype = "Call completed", "success"
+        elif log.status == "failed":
+            title, ttype = "Call failed", "warning"
+        else:
+            title, ttype = "Call started", "info"
+        timeline.append({"id": str(log.id), "type": ttype, "title": title, "time": _relative_time(log.created_at)})
+
+    status_val = campaign.status.value if hasattr(campaign.status, "value") else str(campaign.status)
+
+    return {
+        "header": {
+            "name": campaign.name,
+            "status": _CAMPAIGN_STATUS_TO_RUN.get(status_val, "draft"),
+            "createdAt": campaign.created_at.isoformat() if campaign.created_at else None,
+            "updatedAt": campaign.updated_at.isoformat() if campaign.updated_at else None,
+        },
+        "kpis": kpis,
+        "funnel": funnel,
+        "progress": {
+            "completed": completed,
+            "total": total_contacts,
+            "etaLabel": "In progress" if progress.get("is_running") else "Not running",
+            "retryQueue": pending,
+            "failedCalls": failed,
+            "successRate": success_rate,
+        },
+        "recentCalls": recent_calls,
+        "timeline": timeline,
+        "settings": {
+            "voice": campaign.ai_voice or "—",
+            "language": campaign.language or "en",
+            "retries": f"{campaign.max_retries} attempts" if campaign.max_retries is not None else "—",
+            "knowledgeBase": "—",
+            "promptVersion": "v1",
+            "launchSchedule": campaign.scheduled_at.isoformat() if campaign.scheduled_at else "Manual",
+            "timezone": "—",
+        },
+    }
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TWILIO WEBHOOKS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

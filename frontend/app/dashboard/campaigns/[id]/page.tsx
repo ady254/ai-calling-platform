@@ -21,55 +21,34 @@ import ExecutiveSummary from "@/components/dashboard/overview/ExecutiveSummary";
 import { CampaignDetailData, CampaignRunStatus } from "@/types/campaign-details";
 import { mockCampaignDetail, emptyCampaignDetail } from "@/utils/mockCampaignDetail";
 import {
-  getCampaign,
-  getCampaignProgress,
+  getCampaignAnalytics,
   pauseCampaign,
   startCampaign,
+  CampaignAnalyticsResponse,
 } from "@/services/campaign-service";
-import { Campaign } from "@/types/campaign";
-import { CampaignProgress as CampaignProgressResp } from "@/services/campaign-service";
 
 type DataMode = "mock" | "api" | "empty";
 
-const STATUS_MAP: Record<string, CampaignRunStatus> = {
-  active: "running",
-  paused: "paused",
-  scheduled: "scheduled",
-  completed: "completed",
-  draft: "draft",
-  cancelled: "cancelled",
-};
-
-// Overlay real campaign + progress values onto the high-fidelity mock so the
-// page reflects the actual record while backend analytics are still stubbed.
-function buildFromApi(
-  campaign: Campaign,
-  progress: CampaignProgressResp | null
-): CampaignDetailData {
+// Merge real per-campaign analytics onto the high-fidelity mock. KPIs, funnel,
+// progress, recent calls, timeline and settings become real; the performance
+// chart, AI insights and executive summary stay from mock until those are
+// computed/enriched server-side.
+function buildFromAnalytics(a: CampaignAnalyticsResponse): CampaignDetailData {
   const base = mockCampaignDetail;
-  const total = progress?.total_contacts ?? mockCampaignDetail.progress.total;
-  const completed = progress?.completed ?? 0;
-  const failed = progress?.failed ?? 0;
-  const successRate =
-    completed + failed > 0 ? Math.round((completed / (completed + failed)) * 100) : 0;
-
   return {
     ...base,
     header: {
-      name: campaign.name,
-      status: STATUS_MAP[campaign.status] ?? "draft",
-      createdAt: campaign.created_at,
-      updatedAt: campaign.updated_at,
+      name: a.header.name,
+      status: (a.header.status as CampaignRunStatus) || "draft",
+      createdAt: a.header.createdAt ?? base.header.createdAt,
+      updatedAt: a.header.updatedAt ?? base.header.updatedAt,
     },
-    progress: {
-      ...base.progress,
-      completed,
-      total,
-      retryQueue: progress?.pending ?? 0,
-      failedCalls: failed,
-      successRate,
-      etaLabel: progress?.is_running ? base.progress.etaLabel : "Not running",
-    },
+    kpis: (a.kpis as CampaignDetailData["kpis"]) ?? base.kpis,
+    funnel: (a.funnel as CampaignDetailData["funnel"]) ?? base.funnel,
+    progress: { ...base.progress, ...a.progress },
+    recentCalls: (a.recentCalls as CampaignDetailData["recentCalls"]) ?? base.recentCalls,
+    timeline: (a.timeline as CampaignDetailData["timeline"]) ?? base.timeline,
+    settings: { ...base.settings, ...(a.settings as Partial<CampaignDetailData["settings"]>) },
   };
 }
 
@@ -92,18 +71,10 @@ export default function CampaignDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const [campaignRes, progressRes] = await Promise.allSettled([
-        getCampaign(campaignId),
-        getCampaignProgress(campaignId),
-      ]);
-
-      if (campaignRes.status !== "fulfilled") {
-        throw new Error("Failed to load campaign");
-      }
-      const progress = progressRes.status === "fulfilled" ? progressRes.value.data : null;
-      setApiData(buildFromApi(campaignRes.value.data, progress));
+      const res = await getCampaignAnalytics(campaignId);
+      setApiData(buildFromAnalytics(res.data));
     } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.message || "Failed to load campaign");
+      setError(err?.response?.data?.detail || err?.message || "Failed to load campaign analytics");
     } finally {
       setLoading(false);
     }

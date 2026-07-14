@@ -55,3 +55,27 @@ export interface CampaignProgress {
 export const getCampaignProgress = async (campaignId: string) => {
     return api.get<CampaignProgress>(`/call/campaign/${campaignId}/progress`);
 };
+
+// Real per-campaign analytics for the Campaign Details page. Returns a partial
+// of the CampaignDetailData shape (header, kpis, funnel, progress, recentCalls,
+// timeline, settings) computed from call logs. See backend call_routes.py.
+export interface CampaignAnalyticsResponse {
+    header: { name: string; status: string; createdAt: string | null; updatedAt: string | null };
+    kpis: unknown[];
+    funnel: unknown[];
+    progress: {
+        completed: number;
+        total: number;
+        etaLabel: string;
+        retryQueue: number;
+        failedCalls: number;
+        successRate: number;
+    };
+    recentCalls: unknown[];
+    timeline: unknown[];
+    settings: Record<string, string>;
+}
+
+export const getCampaignAnalytics = async (campaignId: string) => {
+    return api.get<CampaignAnalyticsResponse>(`/call/campaign/${campaignId}/analytics`);
+};
