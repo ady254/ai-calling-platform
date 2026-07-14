@@ -1,109 +1,128 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Phone, CheckCircle, XCircle, Clock, Activity, RefreshCw } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { api } from "@/services/api";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { BarChart3 } from "lucide-react";
 
-interface AnalyticsData {
-    total_calls: number;
-    completed_calls: number;
-    failed_calls: number;
-    average_duration_seconds: number;
-    call_trends: { date: string; calls: number }[];
-}
+import AnalyticsHeader from "@/components/dashboard/analytics/AnalyticsHeader";
+import ExecutiveKPIs from "@/components/dashboard/analytics/ExecutiveKPIs";
+import ExecutiveFunnel from "@/components/dashboard/analytics/ExecutiveFunnel";
+import RevenueChart from "@/components/dashboard/analytics/RevenueChart";
+import CampaignRanking from "@/components/dashboard/analytics/CampaignRanking";
+import AILeaderboard from "@/components/dashboard/analytics/AILeaderboard";
+import CustomerInsights from "@/components/dashboard/analytics/CustomerInsights";
+import BusinessMetrics from "@/components/dashboard/analytics/BusinessMetrics";
+import CostBreakdown from "@/components/dashboard/analytics/CostBreakdown";
+import StrategicRecommendations from "@/components/dashboard/analytics/StrategicRecommendations";
+import QuickActions, { QuickActionKey } from "@/components/dashboard/analytics/QuickActions";
+import ExecutiveSummary from "@/components/dashboard/overview/ExecutiveSummary";
+
+import { DateRangeKey } from "@/types/analytics";
+import { mockAnalyticsData } from "@/utils/mockAnalytics";
 
 export default function AnalyticsPage() {
-    const [data, setData] = useState<AnalyticsData | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  const data = mockAnalyticsData;
+  const [range, setRange] = useState<DateRangeKey>("30d");
 
-    const fetchAnalytics = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const res = await api.get<AnalyticsData>("/call/analytics");
-            setData(res.data);
-        } catch (err) {
-            console.error("Failed to fetch analytics", err);
-            setError("Couldn't load analytics. Check your connection and try again.");
-        } finally {
-            setLoading(false);
-        }
-    }, []);
+  const hasData = data.kpis.length > 0 && data.funnel.length > 0;
 
-    useEffect(() => {
-        fetchAnalytics();
-    }, [fetchAnalytics]);
+  const handleQuickAction = (key: QuickActionKey) => {
+    switch (key) {
+      case "create-campaign":
+        router.push("/dashboard/campaigns/create");
+        break;
+      case "view-conversations":
+        router.push("/dashboard/call-logs");
+        break;
+      case "optimize-agent":
+        router.push("/dashboard/agents");
+        break;
+      case "export":
+        toast.success("Exporting analytics…");
+        break;
+      case "pdf":
+        toast.success("Generating executive PDF…");
+        break;
+    }
+  };
 
-    if (loading) return <div className="p-8 text-slate-500 animate-pulse">Loading analytics...</div>;
-    if (error) return (
-        <div className="p-8 flex flex-col items-start gap-3">
-            <p className="text-slate-500">{error}</p>
-            <button
-                onClick={fetchAnalytics}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium transition-colors"
-            >
-                <RefreshCw className="w-4 h-4" /> Retry
-            </button>
-        </div>
-    );
+  return (
+    <div className="w-full max-w-[1600px] mx-auto space-y-8 pb-12">
+      <AnalyticsHeader
+        range={range}
+        onRangeChange={setRange}
+        onExport={() => toast.success("Exporting report…")}
+        onSchedule={() => toast("Schedule a recurring report")}
+      />
 
-    const cards = [
-        { title: "Total Calls", value: data?.total_calls || 0, icon: Phone, color: "text-blue-500", bg: "bg-blue-50" },
-        { title: "Completed Calls", value: data?.completed_calls || 0, icon: CheckCircle, color: "text-emerald-500", bg: "bg-emerald-50" },
-        { title: "Failed Calls", value: data?.failed_calls || 0, icon: XCircle, color: "text-rose-500", bg: "bg-rose-50" },
-        { title: "Avg Duration", value: `${Math.round(data?.average_duration_seconds || 0)}s`, icon: Clock, color: "text-indigo-500", bg: "bg-indigo-50" },
-    ];
+      {!hasData ? (
+        <EmptyState onCreate={() => router.push("/dashboard/campaigns/create")} />
+      ) : (
+        <>
+          {/* Executive KPIs */}
+          <ExecutiveKPIs cards={data.kpis} />
 
-    return (
-        <div className="w-full">
-            <header className="mb-8">
-                <h1 className="text-3xl font-semibold text-slate-800 tracking-tight">Analytics Dashboard</h1>
-                <p className="text-slate-500 mt-2">Overview of your AI agent's calling performance.</p>
-            </header>
+          {/* Funnel */}
+          <ExecutiveFunnel stages={data.funnel} />
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                {cards.map((card, idx) => (
-                    <div key={idx} className="bg-white rounded-3xl p-6 border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex items-center gap-4 transition-transform hover:scale-[1.02]">
-                        <div className={`w-14 h-14 rounded-2xl ${card.bg} flex items-center justify-center`}>
-                            <card.icon className={`w-7 h-7 ${card.color}`} />
-                        </div>
-                        <div>
-                            <p className="text-sm font-medium text-slate-500">{card.title}</p>
-                            <h3 className="text-3xl font-bold text-slate-800 mt-1">{card.value}</h3>
-                        </div>
-                    </div>
-                ))}
+          {/* Revenue trend + campaign ranking */}
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+            <div className="lg:col-span-3">
+              <RevenueChart data={data.revenueTrend} />
             </div>
-            
-            <div className="bg-white rounded-3xl p-8 border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
-                <h3 className="text-xl font-semibold text-slate-800 mb-6 flex items-center gap-2">
-                    <Activity className="w-5 h-5 text-indigo-500" />
-                    Call Volume Trends (Last 7 Days)
-                </h3>
-                
-                {data?.call_trends && data.call_trends.length > 0 ? (
-                    <div className="h-72 w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={data.call_trends} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} dy={10} />
-                                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
-                                <Tooltip 
-                                    cursor={{ fill: '#f8fafc' }}
-                                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}
-                                />
-                                <Bar dataKey="calls" fill="#6366f1" radius={[6, 6, 0, 0]} maxBarSize={50} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                ) : (
-                    <div className="h-64 flex flex-col items-center justify-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                        <p>No call data available for trends.</p>
-                    </div>
-                )}
+            <div className="lg:col-span-2">
+              <CampaignRanking campaigns={data.campaigns} />
             </div>
-        </div>
-    );
+          </div>
+
+          {/* AI workforce leaderboard */}
+          <AILeaderboard agents={data.agents} />
+
+          {/* Customer insights */}
+          <CustomerInsights data={data.insights} />
+
+          {/* Business intelligence */}
+          <BusinessMetrics metrics={data.businessMetrics} />
+
+          {/* Cost breakdown + strategic recommendations */}
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+            <div className="lg:col-span-2">
+              <CostBreakdown data={data.cost} />
+            </div>
+            <div className="lg:col-span-3">
+              <StrategicRecommendations recommendations={data.recommendations} />
+            </div>
+          </div>
+
+          {/* Executive report */}
+          <ExecutiveSummary summary={data.executiveReport} />
+
+          {/* Quick actions */}
+          <QuickActions onAction={handleQuickAction} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function EmptyState({ onCreate }: { onCreate: () => void }) {
+  return (
+    <div className="w-full bg-white rounded-2xl p-10 border border-slate-200/70 shadow-[0_12px_35px_-18px_rgba(15,23,42,0.24)] flex flex-col items-center justify-center text-center min-h-[440px]">
+      <div className="w-16 h-16 rounded-2xl bg-indigo-50 border border-indigo-100/50 flex items-center justify-center mb-6">
+        <BarChart3 className="w-8 h-8 text-indigo-500" />
+      </div>
+      <h3 className="text-xl font-bold text-slate-800 font-sans tracking-tight mb-2">Not enough data yet</h3>
+      <p className="text-slate-400 text-sm font-medium max-w-md mb-8 leading-relaxed">
+        Launch campaigns to begin generating business intelligence.
+      </p>
+      <button
+        onClick={onCreate}
+        className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-xl bg-slate-900 text-white hover:bg-slate-800 shadow-sm transition-all"
+      >
+        Create Campaign
+      </button>
+    </div>
+  );
 }
