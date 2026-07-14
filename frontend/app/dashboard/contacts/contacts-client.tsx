@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { SlidersHorizontal, Users, Upload, Plus } from "lucide-react";
 
@@ -16,7 +16,14 @@ import AddContactModal, { ContactFormData } from "@/components/dashboard/contact
 
 import { CRMContact, ContactKPI, PipelineStage, ContactFilters, EMPTY_FILTERS } from "@/types/contacts-crm";
 import { mockContactsData } from "@/utils/mockContacts";
-import { getCRMContacts, getContactKPIs, getContactPipeline, createContactApi } from "@/services/contacts-crm-service";
+import {
+  getCRMContacts,
+  getContactKPIs,
+  getContactPipeline,
+  createContactApi,
+  updateContactApi,
+  deleteContactApi,
+} from "@/services/contacts-crm-service";
 
 type MultiGroup = "statuses" | "scoreRanges" | "industries" | "tags";
 
@@ -120,27 +127,35 @@ export default function ContactsPageClient() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<CRMContact | null>(null);
+  // True once the CRM API answers — then real data is the source of truth and
+  // create/edit/delete persist. Until then we show a mock preview.
+  const [backendLive, setBackendLive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load real CRM data when the backend is ready; otherwise keep mock so the
-  // page always renders. (See services/contacts-crm-service.ts + backend.)
+  // Backend-first: when the CRM API responds we adopt its data as the source of
+  // truth (even an empty list), so what you see here matches the contacts the
+  // campaign builder loads from /contact. Mock is only shown when it's down.
+  const refreshContacts = useCallback(async () => {
+    const [c, k, p] = await Promise.all([getCRMContacts(), getContactKPIs(), getContactPipeline()]);
+    if (Array.isArray(c)) setContacts(c);
+    if (Array.isArray(k) && k.length > 0) setKpis(k);
+    if (Array.isArray(p) && p.length > 0) setPipeline(p);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [c, k, p] = await Promise.all([getCRMContacts(), getContactKPIs(), getContactPipeline()]);
-        if (cancelled) return;
-        if (Array.isArray(c) && c.length > 0) setContacts(c);
-        if (Array.isArray(k) && k.length > 0) setKpis(k);
-        if (Array.isArray(p) && p.length > 0) setPipeline(p);
+        await refreshContacts();
+        if (!cancelled) setBackendLive(true);
       } catch {
-        /* backend not ready — keep mock data */
+        if (!cancelled) setBackendLive(false); // backend/migration not ready — mock preview
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshContacts]);
 
   const activeStage = filters.statuses.length === 1 ? filters.statuses[0] : null;
 
@@ -204,6 +219,7 @@ export default function ContactsPageClient() {
               setContacts((cs) => cs.filter((c) => c.id !== contact.id));
               setSelectedIds((ids) => ids.filter((x) => x !== contact.id));
               toast.success(`${contact.name} deleted`);
+              if (backendLive) deleteContactApi(contact.id).catch(() => {});
             },
           },
           cancel: { label: "Cancel", onClick: () => {} },
@@ -231,6 +247,7 @@ export default function ContactsPageClient() {
         toast.success(`Scheduled calls for ${n} contacts`);
         break;
       case "delete":
+        if (backendLive) visibleSelected.forEach((id) => deleteContactApi(id).catch(() => {}));
         setContacts((cs) => cs.filter((c) => !visibleSelected.includes(c.id)));
         clearSelection();
         toast.success(`Deleted ${n} contacts`);
@@ -255,7 +272,7 @@ export default function ContactsPageClient() {
       .filter(Boolean);
 
     if (editingContact) {
-      // Update in place
+      // Optimistic update, then persist if the backend is live.
       setContacts((cs) =>
         cs.map((c) =>
           c.id === editingContact.id
@@ -274,10 +291,26 @@ export default function ContactsPageClient() {
         )
       );
       toast.success("Contact updated");
+      if (backendLive) {
+        try {
+          await updateContactApi(editingContact.id, {
+            name: form.name.trim(),
+            phone_number: form.phone.trim(),
+            email: form.email.trim() || undefined,
+            company: form.company.trim() || undefined,
+            tags: tags.join(", ") || undefined,
+            industry: form.industry || undefined,
+            lead_score: form.leadScore,
+            pipeline_stage: form.status,
+          });
+        } catch (err: any) {
+          toast.error(err?.response?.data?.detail || "Couldn't save changes to the server.");
+        }
+      }
     } else {
-      // Create a new CRM contact locally with sensible defaults
+      const localId = (typeof crypto !== "undefined" && crypto.randomUUID?.()) || `c-${Date.now()}`;
       const newContact: CRMContact = {
-        id: (typeof crypto !== "undefined" && crypto.randomUUID?.()) || `c-${Date.now()}`,
+        id: localId,
         name: form.name.trim(),
         company: form.company.trim(),
         phone: form.phone.trim(),
@@ -297,12 +330,10 @@ export default function ContactsPageClient() {
         conversionProbability: form.leadScore,
         aiRecommendations: ["New contact — no history yet.", "Recommend an introductory call."],
       };
+      // Show it immediately, then reconcile with the persisted record.
       setContacts((cs) => [newContact, ...cs]);
-      toast.success("Contact added");
-
-      // Best-effort persistence — page works whether or not the backend is up.
       try {
-        await createContactApi({
+        const created = await createContactApi({
           name: newContact.name,
           phone_number: newContact.phone,
           email: newContact.email || undefined,
@@ -312,8 +343,19 @@ export default function ContactsPageClient() {
           lead_score: form.leadScore,
           pipeline_stage: newContact.status,
         });
-      } catch {
-        /* backend not ready — contact remains in the local list */
+        // Swap the optimistic id for the real backend id so this contact is
+        // the same record the campaign builder will list.
+        if (created?.id) {
+          setContacts((cs) => cs.map((c) => (c.id === localId ? { ...newContact, id: created.id } : c)));
+        }
+        toast.success("Contact added");
+      } catch (err: any) {
+        if (backendLive) {
+          setContacts((cs) => cs.filter((c) => c.id !== localId));
+          toast.error(err?.response?.data?.detail || "Couldn't save the contact. Run the DB migration and restart the API.");
+        } else {
+          toast("Added locally — the backend is offline, so it won't appear in campaigns yet.");
+        }
       }
     }
 

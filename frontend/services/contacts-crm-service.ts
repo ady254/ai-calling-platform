@@ -31,8 +31,20 @@ export interface CreateContactPayload {
   pipeline_stage?: string;
 }
 
-// Best-effort persistence — the page adds the contact locally regardless.
-export const createContactApi = async (payload: CreateContactPayload) => {
+// Persist a new contact. Returns the created record (with its real backend id)
+// so the CRM list stays in sync with the contacts the campaign builder loads.
+export const createContactApi = async (
+  payload: CreateContactPayload
+): Promise<{ id: string } & Record<string, unknown>> => {
   const res = await api.post("/contact", payload);
+  return res.data as { id: string } & Record<string, unknown>;
+};
+
+export const updateContactApi = async (id: string, payload: Partial<CreateContactPayload>) => {
+  const res = await api.put(`/contact/${id}`, payload);
   return res.data;
+};
+
+export const deleteContactApi = async (id: string) => {
+  return api.delete(`/contact/${id}`);
 };
