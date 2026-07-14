@@ -1,340 +1,348 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { useContacts } from "@/hooks/useContact";
-import { api } from "@/services/api";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Plus, Upload, Search, Trash2, Phone, Mail, Edit } from "lucide-react";
+import { SlidersHorizontal, Users, Upload, Plus } from "lucide-react";
 
-export default function ContactsPageClient() {
-    const { contacts, loading, error, addContact, removeContact, editContact, uploadCsv } = useContacts();
-    const [searchTerm, setSearchTerm] = useState("");
-    const [isUploading, setIsUploading] = useState(false);
-    const [showModal, setShowModal] = useState(false);
-    const [editingContactId, setEditingContactId] = useState<string | null>(null);
-    const [newContact, setNewContact] = useState({
-        name: "",
-        phone_number: "",
-        email: "",
-        company: "",
-        tags: ""
-    });
-    const [isSubmitting, setIsSubmitting] = useState(false);
+import ContactsHeader from "@/components/dashboard/contacts/ContactsHeader";
+import ContactsKPIs from "@/components/dashboard/contacts/ContactsKPIs";
+import PipelineOverview from "@/components/dashboard/contacts/PipelineOverview";
+import SearchBar from "@/components/dashboard/contacts/SearchBar";
+import FilterSidebar from "@/components/dashboard/contacts/FilterSidebar";
+import ContactsTable, { QuickAction } from "@/components/dashboard/contacts/ContactsTable";
+import BulkActionBar, { BulkAction } from "@/components/dashboard/contacts/BulkActionBar";
+import ContactDrawer from "@/components/dashboard/contacts/ContactDrawer";
 
-    if (loading) return <div className="p-8">Loading contacts...</div>;
-    if (error) return <div className="p-8 text-red-500">Error: {error}</div>;
+import { CRMContact, ContactFilters, EMPTY_FILTERS } from "@/types/contacts-crm";
+import { mockContactsData } from "@/utils/mockContacts";
 
-    const filteredContacts = contacts.filter(c => 
-        c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        c.phone_number.includes(searchTerm)
-    );
+type MultiGroup = "statuses" | "scoreRanges" | "industries" | "tags";
 
-    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        setIsUploading(true);
-        try {
-            await uploadCsv(file);
-            toast.success("Contacts imported successfully");
-        } catch (err: any) {
-            toast.error(`Import failed: ${err.message}`);
-        } finally {
-            setIsUploading(false);
-            if (e.target) e.target.value = '';
-        }
-    };
-
-    const handleSubmitContact = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setIsSubmitting(true);
-        try {
-            if (editingContactId) {
-                await editContact(editingContactId, newContact);
-                toast.success("Contact updated");
-            } else {
-                await addContact(newContact);
-                toast.success("Contact added");
-            }
-            setShowModal(false);
-            setEditingContactId(null);
-            setNewContact({ name: "", phone_number: "", email: "", company: "", tags: "" });
-        } catch (err: any) {
-            toast.error(`Failed to ${editingContactId ? "update" : "add"} contact: ${err.message}`);
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
-    const handleEditClick = (contact: any) => {
-        setEditingContactId(contact.id);
-        setNewContact({
-            name: contact.name,
-            phone_number: contact.phone_number,
-            email: contact.email || "",
-            company: contact.company || "",
-            tags: contact.tags || ""
-        });
-        setShowModal(true);
-    };
-
-    const handleOpenAddModal = () => {
-        setEditingContactId(null);
-        setNewContact({ name: "", phone_number: "", email: "", company: "", tags: "" });
-        setShowModal(true);
-    };
-
-    return (
-        <div className="w-full">
-            <header className="mb-10 w-full flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4">
-                <div>
-                    <h1 className="text-4xl font-semibold text-slate-800 tracking-tight">Contacts</h1>
-                    <p className="text-slate-500 mt-2">Manage your contact lists for AI campaigns.</p>
-                </div>
-                <div className="flex gap-3">
-                    <label className="cursor-pointer">
-                        <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
-                        <div className={`inline-flex items-center justify-center rounded-full font-medium transition-all px-6 py-3 text-sm border-2 border-black/10 hover:border-black/20 text-black gap-2 ${isUploading ? 'opacity-50' : ''}`}>
-                            <Upload className="w-4 h-4" />
-                            {isUploading ? "Importing..." : "Import CSV"}
-                        </div>
-                    </label>
-                    <Button className="gap-2" onClick={handleOpenAddModal}>
-                        <Plus className="w-4 h-4" />
-                        Add Contact
-                    </Button>
-                </div>
-            </header>
-
-            {/* Add Contact Modal */}
-            {showModal && (
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <Card className="w-full max-w-md p-8 animate-in fade-in zoom-in duration-200">
-                        <div className="flex justify-between items-center mb-6">
-                            <h2 className="text-2xl font-bold text-slate-800">{editingContactId ? "Edit Contact" : "Add New Contact"}</h2>
-                            <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600">
-                                <Plus className="w-6 h-6 rotate-45" />
-                            </button>
-                        </div>
-                        <form onSubmit={handleSubmitContact} className="space-y-4">
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-bold text-slate-500 uppercase ml-1">Full Name *</label>
-                                <input 
-                                    required
-                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-                                    placeholder="John Doe"
-                                    value={newContact.name}
-                                    onChange={e => setNewContact({...newContact, name: e.target.value})}
-                                />
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-bold text-slate-500 uppercase ml-1">Phone Number *</label>
-                                <input 
-                                    required
-                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-                                    placeholder="+1234567890"
-                                    value={newContact.phone_number}
-                                    onChange={e => setNewContact({...newContact, phone_number: e.target.value})}
-                                />
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-bold text-slate-500 uppercase ml-1">Email Address</label>
-                                <input 
-                                    type="email"
-                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-                                    placeholder="john@example.com"
-                                    value={newContact.email}
-                                    onChange={e => setNewContact({...newContact, email: e.target.value})}
-                                />
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-1.5">
-                                    <label className="text-xs font-bold text-slate-500 uppercase ml-1">Company</label>
-                                    <input 
-                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-                                        placeholder="Acme Inc"
-                                        value={newContact.company}
-                                        onChange={e => setNewContact({...newContact, company: e.target.value})}
-                                    />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-xs font-bold text-slate-500 uppercase ml-1">Tags</label>
-                                    <input 
-                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-                                        placeholder="leads, vip"
-                                        value={newContact.tags}
-                                        onChange={e => setNewContact({...newContact, tags: e.target.value})}
-                                    />
-                                </div>
-                            </div>
-                            <div className="flex gap-3 pt-4">
-                                <Button type="button" variant="outline" className="flex-1" onClick={() => setShowModal(false)}>Cancel</Button>
-                                <Button type="submit" className="flex-1" disabled={isSubmitting}>
-                                    {isSubmitting ? "Saving..." : "Save Contact"}
-                                </Button>
-                            </div>
-                        </form>
-                    </Card>
-                </div>
-            )}
-
-            <Card className="p-6 mb-8">
-                <div className="relative">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-                    <input 
-                        type="text"
-                        placeholder="Search contacts by name or phone..."
-                        className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                </div>
-            </Card>
-
-            <div className="bg-white border border-slate-100 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
-                <div className="overflow-x-auto">
-                <table className="w-full text-left min-w-[720px]">
-                    <thead className="bg-slate-50 border-b border-slate-100">
-                        <tr>
-                            <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Name</th>
-                            <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Contact Info</th>
-                            <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Company/Tags</th>
-                            <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                            <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                        {filteredContacts.length === 0 ? (
-                            <tr>
-                                <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
-                                    No contacts found.
-                                </td>
-                            </tr>
-                        ) : (
-                            filteredContacts.map(contact => (
-                                <ContactRow 
-                                    key={contact.id} 
-                                    contact={contact} 
-                                    onDelete={removeContact} 
-                                    onEdit={handleEditClick}
-                                />
-                            ))
-                        )}
-                    </tbody>
-                </table>
-                </div>
-            </div>
-        </div>
-    );
+// ── Filtering helpers ──────────────────────────────────────────────────
+function scoreInRanges(score: number, ranges: string[]) {
+  if (!ranges.length) return true;
+  return ranges.some((r) => {
+    const [min, max] = r.split("-").map(Number);
+    return score >= min && score <= max;
+  });
 }
 
-// Separate component so each row manages its own call state
-function ContactRow({ contact, onDelete, onEdit }: { contact: any; onDelete: (id: string) => void; onEdit: (contact: any) => void; }) {
-    const [callStatus, setCallStatus] = useState<string | null>(null);
-    const [isCalling, setIsCalling] = useState(false);
+function inLastContacted(iso: string | null, key: string) {
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  const now = Date.now();
+  const startToday = new Date();
+  startToday.setHours(0, 0, 0, 0);
+  const startTodayMs = startToday.getTime();
+  switch (key) {
+    case "today":
+      return t >= startTodayMs;
+    case "yesterday":
+      return t >= startTodayMs - 864e5 && t < startTodayMs;
+    case "7d":
+      return t >= now - 7 * 864e5;
+    case "30d":
+      return t >= now - 30 * 864e5;
+    default:
+      return true;
+  }
+}
 
-    const handleCall = async () => {
-        setIsCalling(true);
-        setCallStatus(null);
-        try {
-            const res = await api.post(`/call/start/${contact.id}`);
-            const data = res.data;
+// Lightweight natural-language search → list of AND predicates.
+function buildSearchPredicates(query: string): ((c: CRMContact) => boolean)[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const preds: ((c: CRMContact) => boolean)[] = [];
 
-            if (data.status === "initiated") {
-                setCallStatus("✅ Ringing...");
-                toast.success(`Calling ${contact.name}...`);
-            } else if (data.status === "simulated") {
-                setCallStatus("⚠️ Simulated");
-                toast.info("Simulated call — configure Twilio credentials to make real calls");
-            } else {
-                setCallStatus("❌ Failed");
-                toast.error(data.error || "Call failed to start");
-            }
-        } catch (err) {
-            setCallStatus("❌ Error");
-            toast.error("Couldn't start the call. Check your connection.");
-        } finally {
-            setIsCalling(false);
-            setTimeout(() => setCallStatus(null), 5000);
-        }
-    };
+  const above = q.match(/(?:above|over|greater than|more than|>)\s*(\d{1,3})/);
+  if (above) {
+    const n = +above[1];
+    preds.push((c) => c.leadScore > n);
+  }
+  const below = q.match(/(?:below|under|less than|<)\s*(\d{1,3})/);
+  if (below) {
+    const n = +below[1];
+    preds.push((c) => c.leadScore < n);
+  }
 
-    return (
-        <tr className="hover:bg-slate-50/50 transition-colors">
-            <td className="px-6 py-4">
-                <div className="font-semibold text-slate-800">{contact.name}</div>
-                <div className="text-xs text-slate-400 mt-1">Added {new Date(contact.created_at).toLocaleDateString()}</div>
-            </td>
-            <td className="px-6 py-4">
-                <div className="flex items-center gap-2 text-sm text-slate-600 mb-1">
-                    <Phone className="w-3.5 h-3.5" />
-                    {contact.phone_number}
-                </div>
-                {contact.email && (
-                    <div className="flex items-center gap-2 text-sm text-slate-500">
-                        <Mail className="w-3.5 h-3.5" />
-                        {contact.email}
-                    </div>
-                )}
-            </td>
-            <td className="px-6 py-4">
-                <div className="text-sm font-medium text-slate-700">{contact.company || "-"}</div>
-                {contact.tags && (
-                    <div className="flex gap-1 mt-1">
-                        {contact.tags.split(',').map((tag: string, i: number) => (
-                            <span key={i} className="px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded-md">
-                                {tag.trim()}
-                            </span>
-                        ))}
-                    </div>
-                )}
-            </td>
-            <td className="px-6 py-4">
-                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-800 capitalize">
-                    {contact.status.replace('_', ' ')}
-                </span>
-            </td>
-            <td className="px-6 py-4 text-right">
-                <div className="flex items-center justify-end gap-2">
-                    {callStatus && (
-                        <span className="text-xs text-slate-500 mr-1">{callStatus}</span>
-                    )}
-                    <button
-                        onClick={handleCall}
-                        disabled={isCalling}
-                        className={`p-2 rounded-lg transition-colors ${
-                            isCalling 
-                                ? "bg-emerald-100 text-emerald-600 animate-pulse" 
-                                : "text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
-                        }`}
-                        title="Call via Twilio"
-                    >
-                        <Phone className="w-4 h-4" />
-                    </button>
-                    <button 
-                        onClick={() => onEdit(contact)}
-                        className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="Edit Contact"
-                    >
-                        <Edit className="w-4 h-4" />
-                    </button>
-                    <button
-                        onClick={() => {
-                            toast(`Delete ${contact.name}?`, {
-                                description: "This cannot be undone.",
-                                action: { label: "Delete", onClick: () => onDelete(contact.id) },
-                                cancel: { label: "Cancel", onClick: () => {} },
-                            });
-                        }}
-                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Delete Contact"
-                    >
-                        <Trash2 className="w-4 h-4" />
-                    </button>
-                </div>
-            </td>
-        </tr>
+  if (/not\s+(called|contacted).*(week|7 days|recently)|not\s+called\s+this\s+week/.test(q)) {
+    preds.push((c) => !c.lastContact || Date.now() - new Date(c.lastContact).getTime() > 7 * 864e5);
+  }
+
+  const industries: [RegExp, string][] = [
+    [/hospital|healthcare|clinic|medical/, "Healthcare"],
+    [/real estate|realty|property/, "Real Estate"],
+    [/education|school|academy|enroll/, "Education"],
+    [/retail|store|shop/, "Retail"],
+    [/manufactur|factory|industrial/, "Manufacturing"],
+  ];
+  industries.forEach(([re, val]) => {
+    if (re.test(q)) preds.push((c) => c.industry === val);
+  });
+
+  const statuses: [RegExp, CRMContact["status"]][] = [
+    [/\bbooked\b|appointment/, "booked"],
+    [/\bwon\b|customer/, "won"],
+    [/\bqualified\b/, "qualified"],
+    [/\binterested\b/, "interested"],
+    [/\bcontacted\b/, "contacted"],
+    [/\blost\b/, "lost"],
+    [/\bnew\b/, "new"],
+  ];
+  statuses.forEach(([re, val]) => {
+    if (re.test(q)) preds.push((c) => c.status === val);
+  });
+
+  const tags = ["vip", "cold lead", "hot lead", "returning", "enterprise"];
+  tags.forEach((tag) => {
+    if (q.includes(tag)) preds.push((c) => c.tags.some((t) => t.toLowerCase() === tag));
+  });
+
+  // Fallback to substring match when no structured intent detected.
+  if (preds.length === 0) {
+    preds.push((c) =>
+      [c.name, c.company, c.email, c.industry, c.assignedAgent, ...c.tags].join(" ").toLowerCase().includes(q)
     );
+  }
+  return preds;
+}
+
+export default function ContactsPageClient() {
+  const data = mockContactsData;
+  const [contacts, setContacts] = useState<CRMContact[]>(data.contacts);
+  const [filters, setFilters] = useState<ContactFilters>(EMPTY_FILTERS);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [drawerContact, setDrawerContact] = useState<CRMContact | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const activeStage = filters.statuses.length === 1 ? filters.statuses[0] : null;
+
+  const filtered = useMemo(() => {
+    const searchPreds = buildSearchPredicates(filters.search);
+    return contacts.filter((c) => {
+      if (filters.statuses.length && !filters.statuses.includes(c.status)) return false;
+      if (!scoreInRanges(c.leadScore, filters.scoreRanges)) return false;
+      if (filters.industries.length && !filters.industries.includes(c.industry)) return false;
+      if (filters.tags.length && !filters.tags.some((t) => c.tags.includes(t))) return false;
+      if (filters.lastContacted && !inLastContacted(c.lastContact, filters.lastContacted)) return false;
+      if (searchPreds.length && !searchPreds.every((p) => p(c))) return false;
+      return true;
+    });
+  }, [contacts, filters]);
+
+  // Keep selection within the visible set.
+  const visibleSelected = selectedIds.filter((id) => filtered.some((c) => c.id === id));
+
+  // ── Filter mutations ────────────────────────────────────────────────
+  const toggleMulti = (group: MultiGroup, id: string) =>
+    setFilters((f) => {
+      const arr = f[group];
+      return { ...f, [group]: arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id] };
+    });
+  const setLastContacted = (id: string | null) => setFilters((f) => ({ ...f, lastContacted: id }));
+  const clearAll = () => setFilters(EMPTY_FILTERS);
+  const setSearch = (search: string) => setFilters((f) => ({ ...f, search }));
+  const selectStage = (stage: string) =>
+    setFilters((f) => ({ ...f, statuses: f.statuses.length === 1 && f.statuses[0] === stage ? [] : [stage] }));
+
+  // ── Selection ───────────────────────────────────────────────────────
+  const toggleSelect = (id: string) =>
+    setSelectedIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  const toggleSelectAll = () =>
+    setSelectedIds((ids) => (ids.length === filtered.length ? [] : filtered.map((c) => c.id)));
+  const clearSelection = () => setSelectedIds([]);
+
+  // ── Actions ─────────────────────────────────────────────────────────
+  const handleQuickAction = (action: QuickAction, contact: CRMContact) => {
+    switch (action) {
+      case "call":
+        toast.success(`Calling ${contact.name}…`);
+        break;
+      case "schedule":
+        toast(`Schedule a call with ${contact.name}`);
+        break;
+      case "view":
+        setDrawerContact(contact);
+        break;
+      case "edit":
+        toast(`Edit ${contact.name}`);
+        break;
+      case "delete":
+        toast(`Delete ${contact.name}?`, {
+          description: "This cannot be undone.",
+          action: {
+            label: "Delete",
+            onClick: () => {
+              setContacts((cs) => cs.filter((c) => c.id !== contact.id));
+              setSelectedIds((ids) => ids.filter((x) => x !== contact.id));
+              toast.success(`${contact.name} deleted`);
+            },
+          },
+          cancel: { label: "Cancel", onClick: () => {} },
+        });
+        break;
+    }
+  };
+
+  const handleBulkAction = (action: BulkAction) => {
+    const n = visibleSelected.length;
+    switch (action) {
+      case "campaign":
+        toast.success(`Assigned ${n} contacts to a campaign`);
+        break;
+      case "agent":
+        toast.success(`Assigned an AI agent to ${n} contacts`);
+        break;
+      case "export":
+        toast.success(`Exporting ${n} contacts…`);
+        break;
+      case "tags":
+        toast(`Add tags to ${n} contacts`);
+        break;
+      case "schedule":
+        toast.success(`Scheduled calls for ${n} contacts`);
+        break;
+      case "delete":
+        setContacts((cs) => cs.filter((c) => !visibleSelected.includes(c.id)));
+        clearSelection();
+        toast.success(`Deleted ${n} contacts`);
+        break;
+    }
+  };
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files?.[0]) toast.success("CSV import started");
+    if (e.target) e.target.value = "";
+  };
+
+  const activeFilterCount =
+    filters.statuses.length +
+    filters.scoreRanges.length +
+    filters.industries.length +
+    filters.tags.length +
+    (filters.lastContacted ? 1 : 0);
+
+  return (
+    <div className="w-full max-w-[1600px] mx-auto space-y-6 pb-28">
+      <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleImport} />
+
+      <ContactsHeader
+        onImport={() => fileInputRef.current?.click()}
+        onExport={() => toast.success("Exporting contacts…")}
+        onAdd={() => toast("Add a new contact")}
+      />
+
+      {contacts.length === 0 ? (
+        <EmptyState onImport={() => fileInputRef.current?.click()} onAdd={() => toast("Add a new contact")} />
+      ) : (
+        <>
+          <ContactsKPIs cards={data.kpis} />
+          <PipelineOverview stages={data.pipeline} activeStage={activeStage} onSelect={selectStage} />
+          <SearchBar value={filters.search} onChange={setSearch} />
+
+          <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6 items-start">
+            {/* Filters */}
+            <div className="space-y-3">
+              <button
+                onClick={() => setFiltersOpen((o) => !o)}
+                className="lg:hidden w-full inline-flex items-center justify-between px-4 py-2.5 text-sm font-semibold rounded-xl bg-white text-slate-700 border border-slate-200/80"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <SlidersHorizontal className="w-4 h-4" />
+                  Filters
+                  {activeFilterCount > 0 && (
+                    <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100/70 rounded-full px-1.5 py-0.5">
+                      {activeFilterCount}
+                    </span>
+                  )}
+                </span>
+              </button>
+              <div className={`${filtersOpen ? "block" : "hidden"} lg:block lg:sticky lg:top-6`}>
+                <FilterSidebar
+                  config={data.filterConfig}
+                  filters={filters}
+                  onToggleMulti={toggleMulti}
+                  onSetLastContacted={setLastContacted}
+                  onClearAll={clearAll}
+                />
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="min-w-0 space-y-3">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-sm text-slate-500 font-medium">
+                  <span className="font-semibold text-slate-700 tabular-nums">{filtered.length}</span>{" "}
+                  {filtered.length === 1 ? "contact" : "contacts"}
+                  {activeFilterCount > 0 || filters.search ? " · filtered" : ""}
+                </span>
+              </div>
+
+              {filtered.length === 0 ? (
+                <div className="bg-white/95 rounded-2xl border border-slate-200/70 shadow-[0_12px_35px_-18px_rgba(15,23,42,0.24)] p-12 text-center">
+                  <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
+                    <Users className="w-6 h-6 text-slate-400" />
+                  </div>
+                  <p className="text-sm font-semibold text-slate-700">No contacts match your filters.</p>
+                  <button onClick={clearAll} className="text-sm font-semibold text-indigo-600 hover:text-indigo-700 mt-2">
+                    Clear filters
+                  </button>
+                </div>
+              ) : (
+                <ContactsTable
+                  contacts={filtered}
+                  selectedIds={visibleSelected}
+                  onToggleSelect={toggleSelect}
+                  onToggleSelectAll={toggleSelectAll}
+                  onRowClick={setDrawerContact}
+                  onQuickAction={handleQuickAction}
+                />
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      <BulkActionBar count={visibleSelected.length} onAction={handleBulkAction} onClear={clearSelection} />
+
+      <ContactDrawer
+        contact={drawerContact}
+        onClose={() => setDrawerContact(null)}
+        onStartCall={(c) => toast.success(`Calling ${c.name}…`)}
+        onOpenConversation={() => toast("Opening conversation…")}
+        onScheduleFollowUp={(c) => toast(`Schedule a follow-up with ${c.name}`)}
+      />
+    </div>
+  );
+}
+
+function EmptyState({ onImport, onAdd }: { onImport: () => void; onAdd: () => void }) {
+  return (
+    <div className="w-full bg-white rounded-2xl p-10 border border-slate-200/70 shadow-[0_12px_35px_-18px_rgba(15,23,42,0.24)] flex flex-col items-center justify-center text-center min-h-[420px]">
+      <div className="w-16 h-16 rounded-2xl bg-indigo-50 border border-indigo-100/50 flex items-center justify-center mb-6">
+        <Users className="w-8 h-8 text-indigo-500" />
+      </div>
+      <h3 className="text-xl font-bold text-slate-800 font-sans tracking-tight mb-2">No contacts yet</h3>
+      <p className="text-slate-400 text-sm font-medium max-w-sm mb-8 leading-relaxed">
+        Import a CSV or create your first contact to start building your AI calling lists.
+      </p>
+      <div className="flex flex-wrap items-center justify-center gap-2.5">
+        <button
+          onClick={onImport}
+          className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-xl bg-white text-slate-700 border border-slate-200/80 hover:bg-slate-50 transition-all"
+        >
+          <Upload className="w-4 h-4" />
+          Import CSV
+        </button>
+        <button
+          onClick={onAdd}
+          className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-xl bg-slate-900 text-white hover:bg-slate-800 shadow-sm transition-all"
+        >
+          <Plus className="w-4 h-4" />
+          Add Contact
+        </button>
+      </div>
+    </div>
+  );
 }
