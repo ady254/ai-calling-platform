@@ -146,12 +146,14 @@ export default function WorkflowStudioPage() {
         <>
           <TemplateGallery templates={data.templates} onUse={(t) => useTemplate(t.name, t.description)} />
 
-          {/* Builder: Node library | Canvas | Inspector */}
-          <div className="grid grid-cols-1 xl:grid-cols-[260px_1fr_340px] gap-4 xl:h-[680px]">
-            <div className="h-[440px] xl:h-full">
+          {/* Builder: Node library | Canvas | Inspector.
+              Panels get a definite height (not a percentage) so their internal
+              scroll areas clip instead of overflowing onto sections below. */}
+          <div className="grid grid-cols-1 xl:grid-cols-[260px_1fr_340px] gap-4 xl:items-start">
+            <div className="h-[440px] xl:h-[680px]">
               <NodeLibrary sections={data.library} onAddNode={addNode} />
             </div>
-            <div className="h-[540px] xl:h-full">
+            <div className="h-[540px] xl:h-[680px]">
               <WorkflowCanvas
                 nodes={nodes}
                 selectedNodeId={selectedNodeId}
@@ -163,7 +165,7 @@ export default function WorkflowStudioPage() {
                 onOpenAssistant={() => setAssistantOpen(true)}
               />
             </div>
-            <div className="h-[480px] xl:h-full">
+            <div className="h-[480px] xl:h-[680px]">
               <InspectorPanel
                 selectedNode={selectedNode}
                 nodeCount={nodes.length}

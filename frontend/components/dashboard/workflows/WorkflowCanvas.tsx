@@ -85,7 +85,7 @@ export default function WorkflowCanvas({
       </div>
 
       {/* Canvas */}
-      <div className="flex-1 overflow-y-auto p-6 sm:p-8" style={GRID_BG}>
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 sm:p-8" style={GRID_BG}>
         {nodes.length === 0 ? (
           <div className="h-full min-h-[320px] flex flex-col items-center justify-center text-center">
             <div className="w-12 h-12 rounded-2xl bg-white border border-slate-200 flex items-center justify-center mb-4 shadow-sm">

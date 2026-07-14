@@ -73,7 +73,7 @@ export default function InspectorPanel({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 min-h-0 overflow-y-auto p-4">
         {!selectedNode && tab === 'config' ? (
           <div className="flex flex-col items-center justify-center text-center py-14">
             <div className="w-11 h-11 rounded-xl bg-slate-100 flex items-center justify-center mb-3">

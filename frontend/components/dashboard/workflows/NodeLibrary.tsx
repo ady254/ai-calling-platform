@@ -68,7 +68,7 @@ export default function NodeLibrary({ sections, onAddNode }: NodeLibraryProps) {
           className="w-full pl-8 pr-3 py-2 text-sm rounded-xl border border-slate-200 bg-slate-50/60 text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition"
         />
       </div>
-      <div className="flex-1 overflow-y-auto -mx-1 px-1">
+      <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
         {filtered.length === 0 ? (
           <p className="text-sm text-slate-400 font-medium text-center py-8">No nodes match.</p>
         ) : (
