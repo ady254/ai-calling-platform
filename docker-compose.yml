@@ -74,6 +74,9 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: aicalling-worker
+    # Overrides the image CMD, so the worker does NOT run migrations — the
+    # backend owns that. It waits for backend to become healthy so the schema
+    # exists before it picks up any job.
     command: ["arq", "app.worker.WorkerSettings"]
     env_file:
       - ./.env
@@ -83,6 +86,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      backend:
         condition: service_healthy
     networks:
       - aicalling-net
