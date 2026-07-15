@@ -23,8 +23,14 @@ from app.core.config import settings
 # campaign_executor.py, and crashes the first job with "expression
 # 'Business' failed to locate a name" since Business is never imported here.
 import app.models  # noqa: F401
+from app.core.observability import init_sentry, setup_logging
 
-logging.basicConfig(level=logging.INFO)
+# Same logging/error-tracking setup as the API. Without this, a campaign job
+# that raises here fails silently in a detached worker — nobody finds out until
+# a customer reports their campaign never ran.
+setup_logging()
+init_sentry()
+
 logger = logging.getLogger("worker")
 
 

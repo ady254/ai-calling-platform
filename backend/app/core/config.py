@@ -62,6 +62,26 @@ class Settings(BaseSettings):
         description="Redis connection URL for arq"
     )
 
+    # ── Observability ────────────────────────────────────────────────
+    # Error tracking is opt-in: leave SENTRY_DSN empty and Sentry is a no-op,
+    # so local dev / CI never ship events anywhere.
+    SENTRY_DSN: str = Field(default="", description="Sentry DSN; error tracking disabled when empty")
+    ENVIRONMENT: str = Field(
+        default="development",
+        description="Deployment environment tag (development | staging | production)"
+    )
+    SENTRY_TRACES_SAMPLE_RATE: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        description="Fraction of requests traced for performance monitoring (0.0-1.0)"
+    )
+    LOG_LEVEL: str = Field(default="INFO", description="Root log level (DEBUG|INFO|WARNING|ERROR)")
+    LOG_FORMAT: str = Field(
+        default="text",
+        description="'json' for structured logs (use in deployed envs), 'text' for human-readable local dev"
+    )
+
     class Config:
         env_file = ".env"
         extra = "ignore"

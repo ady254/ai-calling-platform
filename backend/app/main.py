@@ -1,7 +1,8 @@
 import logging
+import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
@@ -17,13 +18,15 @@ from app.api.agent_routes import router as agent_router
 
 from app.core.config import settings
 from app.core.rate_limit import limiter
+from app.core.observability import init_sentry, request_id_var, setup_logging
 from app.services.campaign_executor import recover_orphaned_contacts
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+# Configure logging + error tracking before anything else emits a log line.
+# LOG_FORMAT=json gives structured, queryable logs in deployed environments;
+# Sentry is a no-op unless SENTRY_DSN is set.
+setup_logging()
+init_sentry()
+
 logger = logging.getLogger(__name__)
 
 
@@ -81,8 +84,28 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Internal-Key"],
+    allow_headers=["Authorization", "Content-Type", "X-Internal-Key", "X-Request-ID"],
+    # Let the browser read the correlation id so support can quote it.
+    expose_headers=["X-Request-ID"],
 )
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """Tag every request with a correlation id.
+
+    Each log line emitted while handling the request carries this id, and it's
+    echoed back on the response — so a user-reported failure maps to exactly
+    the right log lines. Honours an inbound X-Request-ID if a proxy set one.
+    """
+    rid = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
+    token = request_id_var.set(rid)
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = rid
+        return response
+    finally:
+        request_id_var.reset(token)
 
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(business_router, prefix="/business", tags=["Business"])

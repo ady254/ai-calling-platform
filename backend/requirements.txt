@@ -28,3 +28,7 @@ twilio>=8.0.0
 slowapi>=0.1.9
 arq>=0.25.0
 redis>=5.0.0
+# Error tracking / performance. No-ops when SENTRY_DSN is unset, so local dev
+# and tests are unaffected. The [fastapi] extra pulls the ASGI bits needed for
+# request context; Sentry auto-enables its FastAPI/Starlette integrations.
+sentry-sdk[fastapi]>=2.0.0
