@@ -6,6 +6,7 @@ from app.dependencies.database import get_db
 from app.services.auth_service import create_user, login_user
 from app.dependencies.auth import get_current_user
 from app.core.rate_limit import limiter
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -45,6 +46,20 @@ async def signup(
     user: UserCreate,
     db: AsyncSession = Depends(get_db)
 ):
+    """Self-serve registration — disabled unless ALLOW_PUBLIC_SIGNUP is true.
+
+    Access to this platform is granted by issuing credentials, not by signing
+    up. Left open, anyone could register, get a Business auto-created by
+    create_user(), and launch campaigns that bill our Twilio/LLM accounts —
+    the rate limit below only slows that down, it doesn't prevent it.
+
+    Provision client accounts with `python scripts/create_user.py` instead.
+    """
+    if not settings.ALLOW_PUBLIC_SIGNUP:
+        raise HTTPException(
+            status_code=403,
+            detail="Self-serve signup is disabled. Contact your administrator for credentials.",
+        )
     return await create_user(db, user.name, user.email, user.password)
 
 @router.get("/me")

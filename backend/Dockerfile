@@ -1,21 +1,49 @@
-FROM python:3.12-slim
+# ─────────────────────────────────────────────────────────────────────
+# Build stage — compiles wheels, then gets thrown away.
+# ─────────────────────────────────────────────────────────────────────
+FROM python:3.12-slim AS builder
 
-WORKDIR /app
-
-# Install system dependencies
+# build-essential is needed to compile some dependencies, but it must NOT ship
+# in the runtime image: it's ~200MB and hands a compiler to anyone who gets
+# code execution. Multi-stage keeps it here.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install Python dependencies
+# Install into a self-contained venv we can copy wholesale into the runtime.
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY . .
 
-# Create audio directory for TTS output
-RUN mkdir -p audio
+# ─────────────────────────────────────────────────────────────────────
+# Runtime stage — no compiler, no root.
+# ─────────────────────────────────────────────────────────────────────
+FROM python:3.12-slim AS runtime
+
+# Run unprivileged: an RCE or container escape shouldn't land as root.
+RUN useradd --create-home --uid 1000 appuser
+
+WORKDIR /app
+
+COPY --from=builder /opt/venv /opt/venv
+
+ENV PATH="/opt/venv/bin:$PATH" \
+    # Flush logs immediately — buffered stdout hides output when a container
+    # dies, which defeats the logging added in app/core/observability.py.
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# .dockerignore keeps venv/, .env, __pycache__ and .git out of this.
+COPY --chown=appuser:appuser . .
+
+# TTS output dir, writable by the non-root user.
+RUN mkdir -p audio && chown appuser:appuser audio
+
+USER appuser
 
 EXPOSE 8000
 

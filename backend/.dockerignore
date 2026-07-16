@@ -12,5 +12,11 @@ venv/
 .git
 .gitignore
 test*.py
+# Test suite + its config don't belong in the runtime image (CI runs them from
+# the repo, not the container). scripts/ IS kept — you need create_user.py
+# available for `docker compose exec backend python scripts/create_user.py`.
+tests/
+pytest.ini
+requirements-dev.txt
 audio/*.mp3
 *.log

@@ -15,15 +15,20 @@ import {
   X,
 } from "lucide-react";
 
+// Only pages backed by real data are shown to clients. Analytics and Workflow
+// Management are hidden because they have NO backend — Analytics needs revenue/
+// cost tracking that isn't captured, and Workflows has no table or engine. Their
+// pages/code still exist; restore the nav items here once their backends land,
+// so a client never lands on a fabricated dashboard.
 const navItems = [
   { name: "Home", href: "/dashboard", icon: Home },
-  { name: "Analytics", href: "/dashboard/analytics", icon: FileText },
+  // { name: "Analytics", href: "/dashboard/analytics", icon: FileText },   // no backend — hidden
   { name: "Live Call", href: "/dashboard/calls", icon: PhoneCall },
   { name: "Call logs", href: "/dashboard/call-logs", icon: Book },
   { name: "Campaigns", href: "/dashboard/campaigns", icon: MessageSquare },
   { name: "Contacts", href: "/dashboard/contacts", icon: Book },
   { name: "Integrations", href: "/dashboard/integrations", icon: Cpu },
-  { name: "Workflow Management", href: "/dashboard/workflows", icon: GitMerge },
+  // { name: "Workflow Management", href: "/dashboard/workflows", icon: GitMerge }, // no backend — hidden
   { name: "Agent Configuration", href: "/dashboard/agents", icon: Puzzle },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];

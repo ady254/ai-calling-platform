@@ -20,7 +20,9 @@ passlib[bcrypt]>=1.7.4
 # ValueError: password cannot be longer than 72 bytes.
 bcrypt<4.1.0
 python-multipart>=0.0.20
-google-generativeai>=0.8.0
+# Google retired `google-generativeai` (no further updates or security fixes).
+# This is the current SDK — same Gemini API, same key, same models.
+google-genai>=1.0.0
 elevenlabs>=1.0.0
 livekit-api>=0.8.0
 gTTS>=2.5.0

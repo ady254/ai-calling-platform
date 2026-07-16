@@ -48,3 +48,15 @@ export const updateContactApi = async (id: string, payload: Partial<CreateContac
 export const deleteContactApi = async (id: string) => {
   return api.delete(`/contact/${id}`);
 };
+
+// Upload a CSV to the real bulk-import endpoint. Extra columns beyond
+// name/phone_number/email/company/tags are preserved as per-contact variables
+// (see backend contact_routes.py). Returns how many rows were imported.
+export const importContactsApi = async (file: File): Promise<{ success: boolean; imported: number }> => {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await api.post("/contact/import", form, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return res.data as { success: boolean; imported: number };
+};

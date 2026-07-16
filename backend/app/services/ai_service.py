@@ -1,82 +1,47 @@
 import json
 import logging
-import google.generativeai as genai
+
+from google import genai
+from google.genai import types
+
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-genai.configure(api_key=settings.GEMINI_API_KEY)
-
-model = genai.GenerativeModel(
-    "gemini-2.5-flash",
-    system_instruction=(
-        "You are a professional sales calling agent. "
-        "Speak naturally like a human in a phone call. "
-        "Reply in Hinglish (Hindi + English mix). "
-        "Keep responses short and natural. "
-        "When the user greets you or says hello, your exact first response should be: "
-        "'Hey, I'm from DODO by Innvox, India's first AI voice calling platform. How can I help you today?' "
-        "After that, understand the user's requirements and respond accordingly."
-    )
-)
-
-# Session-scoped conversation histories
-# Key: session_id (str) → Value: list of conversation turns
-_session_histories: dict[str, list] = {}
-
-# Max history turns to keep per session (to prevent token overflow)
-MAX_HISTORY_TURNS = 20
-
-
-async def generate_ai_response(message: str, session_id: str = "default") -> str:
-    """Generate an AI response with per-session conversation memory."""
-
-    # Get or create history for this session
-    if session_id not in _session_histories:
-        _session_histories[session_id] = []
-
-    history = _session_histories[session_id]
-
-    # Append user message
-    history.append({
-        "role": "user",
-        "parts": [message]
-    })
-
-    # Trim history if it gets too long (keep last N turns)
-    if len(history) > MAX_HISTORY_TURNS:
-        history[:] = history[-MAX_HISTORY_TURNS:]
-
-    # Generate response with full history
-    response = await model.generate_content_async(history)
-
-    reply = response.text
-
-    # Append model reply to history
-    history.append({
-        "role": "model",
-        "parts": [reply]
-    })
-
-    logger.info(f"AI response for session {session_id}: {reply[:100]}...")
-
-    return reply
-
-
-def clear_session(session_id: str) -> None:
-    """Clear conversation history for a session."""
-    if session_id in _session_histories:
-        del _session_histories[session_id]
-        logger.info(f"Cleared session: {session_id}")
-
 
 # ── Post-call outcome extraction ──────────────────────────────────────
-# Separate model instance: the module-level `model` above carries a sales
-# persona system prompt that must not leak into analysis output.
-_extraction_model = genai.GenerativeModel(
-    "gemini-2.5-flash",
-    generation_config={"response_mime_type": "application/json"},
-)
+# The live phone conversation is handled by the LiveKit agent (see ai-agent/),
+# not here. This module's only job is analysing a finished transcript.
+#
+# Removed (2026-07): an in-memory `_session_histories` dict and the
+# `generate_ai_response`/`clear_session` pair that used it. Nothing in the
+# codebase called them. They were also a liability: the dict was never evicted
+# (unbounded memory growth) and was per-process, so it silently broke with more
+# than one replica. Its hardcoded persona also introduced the agent using an
+# unrelated product's branding, left over from another project.
+#
+# Migrated (2026-07) from `google-generativeai` to `google-genai`. Google
+# retired the old package — no more updates or security fixes. Same API, same
+# key, same model; only the client library changed.
+_MODEL = "gemini-2.5-flash"
+
+_client = genai.Client(api_key=settings.GEMINI_API_KEY)
+
+
+async def _generate_json(prompt: str) -> str:
+    """Send `prompt` to the model and return its raw JSON text.
+
+    The SDK boundary lives here on purpose: everything below deals in plain
+    strings, so parsing/normalisation is testable without the network and a
+    future SDK change touches only this function.
+    """
+    response = await _client.aio.models.generate_content(
+        model=_MODEL,
+        contents=prompt,
+        # JSON response mode keeps analysis output machine-parseable.
+        config=types.GenerateContentConfig(response_mime_type="application/json"),
+    )
+    return response.text
 
 # Allowed outcome values — anything else from the LLM is coerced to "other"
 # so the DB column stays a clean, filterable enum-like set.
@@ -119,10 +84,8 @@ async def extract_call_outcome(transcript: str) -> dict | None:
         return None
 
     try:
-        response = await _extraction_model.generate_content_async(
-            _EXTRACTION_PROMPT.format(transcript=transcript)
-        )
-        data = json.loads(response.text)
+        raw = await _generate_json(_EXTRACTION_PROMPT.format(transcript=transcript))
+        data = json.loads(raw)
 
         outcome = data.get("outcome")
         if outcome not in CALL_OUTCOMES:

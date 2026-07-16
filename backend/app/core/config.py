@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 from pydantic import Field, model_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 load_dotenv()
 
@@ -43,16 +43,27 @@ class Settings(BaseSettings):
         description="Shared secret for AI agent worker to call internal endpoints (min 32 chars)"
     )
 
+    # ── Access model ─────────────────────────────────────────────────
+    # Access is granted by issuing credentials, not self-serve signup, so the
+    # public /auth/signup endpoint is CLOSED BY DEFAULT. Left open, anyone can
+    # register, get a Business auto-created, and spend our Twilio/LLM budget.
+    # Provision accounts with: python scripts/create_user.py
+    # Set true only for local development.
+    ALLOW_PUBLIC_SIGNUP: bool = Field(
+        default=False,
+        description="Allow self-serve registration via POST /auth/signup"
+    )
+
     # CORS
     ALLOWED_ORIGINS: str = Field(
         default="http://localhost:3000",
         description="Comma-separated list of allowed CORS origins"
     )
 
-    # Public base URL for Twilio webhooks (e.g., ngrok URL)
+    # Public base URL for Twilio webhooks (e.g., ngrok URL).
+    # No env= needed: pydantic-settings maps by field name.
     BASE_URL: str = Field(
         default="http://localhost:8000",
-        env="BASE_URL",
         description="Publicly accessible URL for your backend"
     )
 
@@ -82,9 +93,7 @@ class Settings(BaseSettings):
         description="'json' for structured logs (use in deployed envs), 'text' for human-readable local dev"
     )
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @model_validator(mode="after")
     def validate_internal_key(self) -> 'Settings':

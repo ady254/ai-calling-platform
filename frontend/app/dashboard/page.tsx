@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Database, Layers, EyeOff } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { api } from "@/services/api";
 
 import KPICards from "@/components/dashboard/overview/KPICards";
@@ -37,7 +37,8 @@ export default function Dashboard() {
   // - 'mock': high fidelity mock data
   // - 'api': actual data from the database mapped to the new layout
   // - 'empty': empty state (active_campaigns = 0)
-  const [dataMode, setDataMode] = useState<'mock' | 'api' | 'empty'>('mock');
+  // Real backend data only (the mock/empty dev toggle was removed).
+  const [dataMode] = useState<'mock' | 'api' | 'empty'>('api');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -169,56 +170,14 @@ export default function Dashboard() {
   return (
     <div className="w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 space-y-8 pb-10">
       
-      {/* Header controls & toggles */}
-      <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 pb-6 border-b border-slate-100">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-semibold text-slate-800 tracking-tight font-sans">
-            {getGreeting()}, Adnan 
-          </h1>
-          <p className="text-slate-500 mt-2 text-sm md:text-base font-medium max-w-2xl">
-            Here&apos;s how your AI workforce is performing today.
-          </p>
-        </div>
-
-        {/* Developer state controls */}
-        <div className="bg-slate-100 p-0.5 rounded-xl flex items-center border border-slate-200/50 shrink-0 self-start md:self-center">
-          <button
-            onClick={() => setDataMode('mock')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-all duration-200 ${
-              dataMode === 'mock'
-                ? 'bg-white text-slate-800 shadow-sm'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-            title="High Fidelity Mock Data"
-          >
-            <Layers className="w-3.5 h-3.5" />
-            <span>Mock State</span>
-          </button>
-          <button
-            onClick={() => setDataMode('api')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-all duration-200 ${
-              dataMode === 'api'
-                ? 'bg-white text-slate-800 shadow-sm'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-            title="Fetch from backend API"
-          >
-            <Database className="w-3.5 h-3.5" />
-            <span>Live API</span>
-          </button>
-          <button
-            onClick={() => setDataMode('empty')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-all duration-200 ${
-              dataMode === 'empty'
-                ? 'bg-white text-slate-800 shadow-sm'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-            title="Review campaign empty state"
-          >
-            <EyeOff className="w-3.5 h-3.5" />
-            <span>Empty State</span>
-          </button>
-        </div>
+      {/* Header */}
+      <header className="pb-6 border-b border-slate-100">
+        <h1 className="text-3xl md:text-4xl font-semibold text-slate-800 tracking-tight font-sans">
+          {getGreeting()}
+        </h1>
+        <p className="text-slate-500 mt-2 text-sm md:text-base font-medium max-w-2xl">
+          Here&apos;s how your AI workforce is performing today.
+        </p>
       </header>
 
       {/* API Loader / Error alerts */}

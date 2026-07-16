@@ -23,6 +23,7 @@ import {
   createContactApi,
   updateContactApi,
   deleteContactApi,
+  importContactsApi,
 } from "@/services/contacts-crm-service";
 
 type MultiGroup = "statuses" | "scoreRanges" | "industries" | "tags";
@@ -117,29 +118,33 @@ function buildSearchPredicates(query: string): ((c: CRMContact) => boolean)[] {
 }
 
 export default function ContactsPageClient() {
+  // Static UI config only (the filter dropdown option lists) — not business data.
   const filterConfig = mockContactsData.filterConfig;
-  const [contacts, setContacts] = useState<CRMContact[]>(mockContactsData.contacts);
-  const [kpis, setKpis] = useState<ContactKPI[]>(mockContactsData.kpis);
-  const [pipeline, setPipeline] = useState<PipelineStage[]>(mockContactsData.pipeline);
+  // Real data only. Starts empty and is populated from the backend; we never
+  // seed the table with mock contacts, so what you see is what's in your DB and
+  // what the campaign builder will call.
+  const [contacts, setContacts] = useState<CRMContact[]>([]);
+  const [kpis, setKpis] = useState<ContactKPI[]>([]);
+  const [pipeline, setPipeline] = useState<PipelineStage[]>([]);
   const [filters, setFilters] = useState<ContactFilters>(EMPTY_FILTERS);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [drawerContact, setDrawerContact] = useState<CRMContact | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<CRMContact | null>(null);
-  // True once the CRM API answers — then real data is the source of truth and
-  // create/edit/delete persist. Until then we show a mock preview.
+  // True once the CRM API answers. create/edit/delete persist to the backend.
   const [backendLive, setBackendLive] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Backend-first: when the CRM API responds we adopt its data as the source of
-  // truth (even an empty list), so what you see here matches the contacts the
-  // campaign builder loads from /contact. Mock is only shown when it's down.
+  // Pull the real CRM data. What's shown here is exactly what's in the database
+  // and what the campaign builder loads from /contact.
   const refreshContacts = useCallback(async () => {
     const [c, k, p] = await Promise.all([getCRMContacts(), getContactKPIs(), getContactPipeline()]);
     if (Array.isArray(c)) setContacts(c);
-    if (Array.isArray(k) && k.length > 0) setKpis(k);
-    if (Array.isArray(p) && p.length > 0) setPipeline(p);
+    if (Array.isArray(k)) setKpis(k);
+    if (Array.isArray(p)) setPipeline(p);
   }, []);
 
   useEffect(() => {
@@ -147,9 +152,19 @@ export default function ContactsPageClient() {
     (async () => {
       try {
         await refreshContacts();
-        if (!cancelled) setBackendLive(true);
+        if (!cancelled) {
+          setBackendLive(true);
+          setLoadError(false);
+        }
       } catch {
-        if (!cancelled) setBackendLive(false); // backend/migration not ready — mock preview
+        // No mock fallback: surface the failure so a missing migration / down
+        // API is visible instead of hidden behind fake contacts.
+        if (!cancelled) {
+          setBackendLive(false);
+          setLoadError(true);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
     return () => {
@@ -255,9 +270,19 @@ export default function ContactsPageClient() {
     }
   };
 
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files?.[0]) toast.success("CSV import started");
-    if (e.target) e.target.value = "";
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = ""; // allow re-selecting the same file
+    if (!file) return;
+
+    const toastId = toast.loading(`Importing ${file.name}…`);
+    try {
+      const res = await importContactsApi(file);
+      await refreshContacts();
+      toast.success(`Imported ${res.imported} contact${res.imported === 1 ? "" : "s"}`, { id: toastId });
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || "CSV import failed. Check the file format.", { id: toastId });
+    }
   };
 
   const openAddModal = () => {
@@ -380,7 +405,36 @@ export default function ContactsPageClient() {
         onAdd={openAddModal}
       />
 
-      {contacts.length === 0 ? (
+      {loading ? (
+        <div className="w-full bg-white rounded-2xl p-10 border border-slate-200/70 shadow-[0_12px_35px_-18px_rgba(15,23,42,0.24)] flex flex-col items-center justify-center text-center min-h-[420px]">
+          <div className="w-8 h-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin mb-4" />
+          <p className="text-sm font-medium text-slate-500">Loading contacts…</p>
+        </div>
+      ) : loadError ? (
+        <div className="w-full bg-white rounded-2xl p-10 border border-slate-200/70 shadow-[0_12px_35px_-18px_rgba(15,23,42,0.24)] flex flex-col items-center justify-center text-center min-h-[420px]">
+          <div className="w-12 h-12 rounded-xl bg-rose-50 border border-rose-100 flex items-center justify-center mb-4">
+            <Users className="w-6 h-6 text-rose-400" />
+          </div>
+          <h3 className="text-lg font-bold text-slate-800 mb-1">Couldn&apos;t load contacts</h3>
+          <p className="text-slate-400 text-sm font-medium max-w-md mb-6 leading-relaxed">
+            The backend didn&apos;t respond. If this is a fresh deploy, apply the database migration
+            (<span className="font-mono text-slate-500">alembic upgrade head</span>) and restart the API.
+          </p>
+          <button
+            onClick={() => {
+              setLoading(true);
+              setLoadError(false);
+              refreshContacts()
+                .then(() => setBackendLive(true))
+                .catch(() => setLoadError(true))
+                .finally(() => setLoading(false));
+            }}
+            className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-xl bg-slate-900 text-white hover:bg-slate-800 shadow-sm transition-all"
+          >
+            Retry
+          </button>
+        </div>
+      ) : contacts.length === 0 ? (
         <EmptyState onImport={() => fileInputRef.current?.click()} onAdd={openAddModal} />
       ) : (
         <>
