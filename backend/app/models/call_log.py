@@ -21,6 +21,13 @@ class CallLog(Base):
     transcript = Column(String, nullable=True)
     duration = Column(Integer, default=0)
 
+    # Twilio recording media URL for this call (the base URL Twilio POSTs to the
+    # recording-status callback, e.g. .../Recordings/RE...). Null until Twilio
+    # finishes recording and fires the callback. The audio is served to the
+    # frontend via an authenticated backend proxy (never exposed directly), since
+    # the Twilio media URL requires account credentials to fetch.
+    recording_url = Column(String, nullable=True)
+
     # Post-call outcome extracted from the transcript by the LLM after the
     # call ends: confirmed, rescheduled, callback_requested, not_interested,
     # do_not_call, wrong_person, incomplete, other. Null until extraction

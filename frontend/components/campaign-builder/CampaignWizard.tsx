@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useCampaigns } from "@/hooks/useCampaign";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/modal";
 import { Loader2 } from "lucide-react";
 
 import { WizardCampaignState, initialWizardState } from "@/types/campaign-wizard";
@@ -30,6 +31,7 @@ export default function CampaignWizard() {
     const [currentStep, setCurrentStep] = useState(1);
     const [isSuccess, setIsSuccess] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
+    const [confirmOpen, setConfirmOpen] = useState(false);
     const [data, setData] = useState<WizardCampaignState>(initialWizardState);
 
     // Load state from sessionStorage to persist across refreshes/navigation within wizard
@@ -87,13 +89,12 @@ export default function CampaignWizard() {
         }
     };
 
-    const handleLaunch = async () => {
+    const handleLaunchClick = () => {
         if (!validateStep()) return;
-        
-        if (!confirm("Are you sure you want to launch this campaign?")) {
-            return;
-        }
+        setConfirmOpen(true);
+    };
 
+    const handleLaunch = async () => {
         setIsLoading(true);
         try {
             // Only send the fields supported by the backend CampaignCreate payload
@@ -112,6 +113,7 @@ export default function CampaignWizard() {
             };
             
             await addCampaign(payload as any);
+            setConfirmOpen(false);
             setIsSuccess(true);
             sessionStorage.removeItem('campaignWizardState');
             sessionStorage.removeItem('campaignWizardStep');
@@ -168,9 +170,9 @@ export default function CampaignWizard() {
                             Continue
                         </Button>
                     ) : (
-                        <Button 
-                            type="button" 
-                            onClick={handleLaunch}
+                        <Button
+                            type="button"
+                            onClick={handleLaunchClick}
                             disabled={isLoading}
                             className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-8 shadow-sm shadow-indigo-200"
                         >
@@ -186,6 +188,17 @@ export default function CampaignWizard() {
                     )}
                 </div>
             </Card>
+
+            <ConfirmDialog
+                open={confirmOpen}
+                title="Launch this campaign?"
+                description={`"${data.name || "Untitled campaign"}" will be created and calling will begin based on your backend configuration.`}
+                confirmLabel="Launch Campaign"
+                cancelLabel="Cancel"
+                loading={isLoading}
+                onConfirm={handleLaunch}
+                onCancel={() => !isLoading && setConfirmOpen(false)}
+            />
         </div>
     );
 }

@@ -5,6 +5,7 @@ from typing import List, Optional
 from uuid import UUID
 from datetime import datetime, timedelta, timezone
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text, update
@@ -405,7 +406,16 @@ async def twilio_twiml(
             f"(campaign={campaign_id}, contact={contact_id})"
         )
 
-        dial = response.dial()
+        # Record the bridged conversation (both legs) so it can be played back
+        # in Call Details. Twilio POSTs the finished recording to the callback
+        # below, which stores the media URL against this call's CallLog row.
+        recording_callback = f"{settings.BASE_URL}/call/twilio/recording-callback"
+        dial = response.dial(
+            record="record-from-answer-dual",
+            recording_status_callback=recording_callback,
+            recording_status_callback_event="completed",
+            recording_status_callback_method="POST",
+        )
         dial.sip(sip_uri)
 
     else:
@@ -516,6 +526,70 @@ async def twilio_status_callback(request: Request, db: AsyncSession = Depends(ge
 
     except Exception as e:
         logger.error(f"Error processing Twilio status callback: {e}")
+        return {"status": "error", "detail": str(e)}
+
+
+@router.post("/twilio/recording-callback")
+async def twilio_recording_callback(request: Request, db: AsyncSession = Depends(get_db)):
+    """
+    Receives the finished-recording notification from Twilio (fired by the
+    `recordingStatusCallback` set on the <Dial> verb in the TwiML above).
+
+    Twilio sends: CallSid, RecordingSid, RecordingUrl, RecordingStatus,
+    RecordingDuration. We store RecordingUrl against the CallLog row matching
+    CallSid; the audio itself is streamed to the frontend later via the
+    authenticated /call/logs/{id}/recording proxy (Twilio media requires auth).
+    """
+    if not await _validate_twilio_signature(request):
+        logger.warning("Invalid Twilio signature on recording callback")
+        raise HTTPException(status_code=403, detail="Invalid Twilio signature")
+
+    try:
+        form = await request.form()
+        call_sid = form.get("CallSid", "")
+        recording_url = form.get("RecordingUrl", "")
+        recording_status = form.get("RecordingStatus", "")
+        recording_duration = form.get("RecordingDuration", "0")
+
+        logger.info(
+            f"Twilio recording callback: CallSid={call_sid}, "
+            f"Status={recording_status}, Duration={recording_duration}s"
+        )
+
+        # Only persist a completed recording with a usable media URL.
+        if recording_status != "completed" or not call_sid or not recording_url:
+            return {"status": "ok"}
+
+        try:
+            rec_duration = int(recording_duration) if recording_duration else 0
+        except ValueError:
+            rec_duration = 0
+
+        # Store the media URL. Also backfill duration from the recording length
+        # when the status callback hasn't set one yet (COALESCE keeps any
+        # existing non-zero value).
+        result = await db.execute(
+            update(CallLog)
+            .where(CallLog.call_sid == call_sid)
+            .values(
+                recording_url=recording_url,
+                duration=func.coalesce(func.nullif(CallLog.duration, 0), rec_duration),
+            )
+            .returning(CallLog.id)
+        )
+        await db.commit()
+
+        if result.first():
+            logger.info(f"Recording saved for CallSid {call_sid}")
+        else:
+            logger.warning(
+                f"Recording callback for unknown CallSid {call_sid} — no CallLog updated"
+            )
+
+        return {"status": "ok"}
+
+    except Exception as e:
+        logger.error(f"Error processing Twilio recording callback: {e}")
         return {"status": "error", "detail": str(e)}
 
 
@@ -726,7 +800,16 @@ async def get_call_detail(
             segs.append({"id": f"s{i}", "speaker": speaker, "timestamp": ts, "text": text, "tags": []})
         transcript = segs or None
 
-    recording = {"url": None, "durationSeconds": int(log.duration or 0)} if (log.duration or 0) > 0 else None
+    # When Twilio has stored a recording, point the frontend at our authenticated
+    # proxy (it fetches the blob with the user's token — Twilio media isn't public).
+    # Otherwise fall back to the duration-only shape that drives the simulated
+    # waveform, or None when there's nothing at all.
+    if log.recording_url:
+        recording = {"url": f"/call/logs/{log.id}/recording", "durationSeconds": int(log.duration or 0)}
+    elif (log.duration or 0) > 0:
+        recording = {"url": None, "durationSeconds": int(log.duration or 0)}
+    else:
+        recording = None
 
     kpis = [
         {"id": "lead-score", "label": "Lead Score", "value": f"{lead_score} / 100" if lead_score is not None else "—", "hint": "Contact score", "tone": "accent", "icon": "lead-score"},
@@ -763,6 +846,57 @@ async def get_call_detail(
         "summary": summary,
         "transcript": transcript,
     }
+
+
+@router.get("/logs/{log_id}/recording")
+async def get_call_recording(
+    log_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+):
+    """Authenticated proxy for a call's Twilio recording audio.
+
+    Twilio recording media requires account credentials, so the frontend can't
+    load it directly with an <audio> tag (which can't send the user's bearer
+    token either). Instead the browser fetches this endpoint with auth, and we
+    stream the audio from Twilio — scoped to the caller's business — back as MP3.
+    """
+    business = await get_user_business(db, user_id)
+
+    log = (await db.execute(
+        select(CallLog).filter(CallLog.id == log_id, CallLog.business_id == business.id)
+    )).scalar_one_or_none()
+    if not log:
+        raise HTTPException(status_code=404, detail="Call not found")
+    if not log.recording_url:
+        raise HTTPException(status_code=404, detail="No recording for this call")
+
+    # Twilio media URLs serve MP3 when you append ".mp3"; auth is HTTP Basic
+    # with the account SID + auth token.
+    media_url = log.recording_url
+    if not media_url.endswith((".mp3", ".wav")):
+        media_url = f"{media_url}.mp3"
+    auth = (settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+
+    # Call recordings are small MP3s (a few MB even for long calls), and the
+    # frontend loads the result into a blob/object URL for playback, so a single
+    # buffered fetch is simplest and gives full client-side seeking.
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            upstream = await client.get(media_url, auth=auth)
+    except httpx.HTTPError as e:
+        logger.error(f"Twilio media fetch error for log {log_id}: {e}")
+        raise HTTPException(status_code=502, detail="Recording unavailable upstream")
+
+    if upstream.status_code != 200:
+        logger.error(f"Twilio media fetch failed ({upstream.status_code}) for log {log_id}")
+        raise HTTPException(status_code=502, detail="Recording unavailable upstream")
+
+    return Response(
+        content=upstream.content,
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 @router.get("/analytics", response_model=AnalyticsOut)

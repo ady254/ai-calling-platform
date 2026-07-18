@@ -33,6 +33,8 @@ export default {
       animation: {
         'float': 'float 6s ease-in-out infinite',
         'pulse-slow': 'pulse-slow 8s ease-in-out infinite',
+        'overlay-fade': 'overlay-fade 0.15s ease-out',
+        'dialog-pop': 'dialog-pop 0.15s ease-out',
       },
       keyframes: {
         float: {
@@ -42,7 +44,15 @@ export default {
         'pulse-slow': {
           '0%, 100%': { opacity: '0.8' },
           '50%': { opacity: '0.3' },
-        }
+        },
+        'overlay-fade': {
+          from: { opacity: '0' },
+          to: { opacity: '1' },
+        },
+        'dialog-pop': {
+          from: { opacity: '0', transform: 'scale(0.95)' },
+          to: { opacity: '1', transform: 'scale(1)' },
+        },
       }
     },
   },

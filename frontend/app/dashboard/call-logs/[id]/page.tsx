@@ -24,6 +24,7 @@ import AIImprovementTab from "@/components/dashboard/call-details/ai-improvement
 import { CallDetailData } from "@/types/call-details";
 import { mockCallDetail } from "@/utils/mockCallDetail";
 import { getCallDetail, CallDetailResponse } from "@/services/call-detail-service";
+import { api } from "@/services/api";
 
 type CallTab = "overview" | "improvement";
 
@@ -61,6 +62,10 @@ export default function CallDetailsPage() {
 
   const playerRef = useRef<AudioPlayerHandle>(null);
   const [currentTime, setCurrentTime] = useState(0);
+  // Object URL for the real recording once fetched (auth'd blob). The backend
+  // returns a relative proxy path in recording.url; a plain <audio src> can't
+  // send the bearer token, so we fetch the audio here and hand over a blob URL.
+  const [recordingSrc, setRecordingSrc] = useState<string | null>(null);
 
   // Load real call data unless we're viewing the sample. Falls back to mock.
   useEffect(() => {
@@ -78,6 +83,43 @@ export default function CallDetailsPage() {
       cancelled = true;
     };
   }, [callId]);
+
+  // Fetch the real recording as an authenticated blob when the backend exposes
+  // a proxy path (starts with "/"). Falls back silently to the simulated
+  // waveform if the fetch fails.
+  useEffect(() => {
+    const rel = data.recording?.url;
+    if (!rel || !rel.startsWith("/")) {
+      setRecordingSrc(null);
+      return;
+    }
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    (async () => {
+      try {
+        const res = await api.get(rel, { responseType: "blob" });
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(res.data as Blob);
+        setRecordingSrc(objectUrl);
+      } catch {
+        /* recording fetch failed — keep the simulated waveform */
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [data.recording?.url]);
+
+  // What we actually hand the player: the fetched blob URL when ready; while a
+  // backend-proxied recording is still loading, null so the player shows the
+  // waveform rather than a broken <audio> source.
+  const playableRecording = data.recording
+    ? {
+        ...data.recording,
+        url: recordingSrc ?? (data.recording.url?.startsWith("/") ? null : data.recording.url),
+      }
+    : null;
 
   const goToImprovement = () => {
     setTab("improvement");
@@ -198,7 +240,7 @@ export default function CallDetailsPage() {
           {/* Section 2 — Player + Summary (60) / Intelligence (40) */}
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
             <div className="lg:col-span-3 space-y-6">
-              <AudioPlayer ref={playerRef} recording={data.recording} onTimeUpdate={setCurrentTime} />
+              <AudioPlayer ref={playerRef} recording={playableRecording} onTimeUpdate={setCurrentTime} />
               <AISummary points={data.summary} />
             </div>
             <div className="lg:col-span-2">
